@@ -5,6 +5,7 @@
 //	membership migrate-legacy          import from the legacy PHP database
 //	membership user <subcommand>       manage login users and roles
 //	membership healthcheck             probe /healthz (Docker HEALTHCHECK)
+//	membership seed-dev                fill an empty scratch database with invented members
 package main
 
 import (
@@ -25,6 +26,7 @@ import (
 	"github.com/clidive410/membership/internal/auth"
 	"github.com/clidive410/membership/internal/config"
 	"github.com/clidive410/membership/internal/db"
+	"github.com/clidive410/membership/internal/devseed"
 	"github.com/clidive410/membership/internal/legacy"
 	"github.com/clidive410/membership/internal/members"
 	"github.com/clidive410/membership/internal/web"
@@ -49,6 +51,7 @@ Commands:
   migrate-legacy   Import members from the legacy database (-legacy-dsn, -dry-run)
   user             Manage users: set-password, grant, revoke, link, disable, enable, list
   healthcheck      Exit 0 if the local server's /healthz answers 200
+  seed-dev         Insert invented members into an EMPTY database (-n 40, -seed 1)
   version          Print the version
 
 Configuration is read from environment variables; see README.md.
@@ -71,6 +74,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return userCmd(ctx, args, stdin, stdout)
 	case "healthcheck":
 		return healthcheck()
+	case "seed-dev":
+		return seedDev(ctx, args, stdout)
 	case "version":
 		fmt.Fprintln(stdout, version)
 		return nil
@@ -343,6 +348,29 @@ func userCmd(ctx context.Context, args []string, stdin io.Reader, out io.Writer)
 		return store.SetDisabled(ctx, id, sub == "disable")
 	}
 	return fmt.Errorf("unknown user subcommand %q", sub)
+}
+
+// seedDev fills a fresh scratch database with deterministic, invented
+// members for UI work. It refuses to run against a database that already
+// has members.
+func seedDev(ctx context.Context, args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("seed-dev", flag.ContinueOnError)
+	n := fs.Int("n", 40, "number of members")
+	seed := fs.Uint64("seed", 1, "generator seed (same seed, same members)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	mstore, _, closeDB, err := openAppDB(ctx, cliLogger())
+	if err != nil {
+		return err
+	}
+	defer closeDB()
+	res, err := devseed.Seed(ctx, mstore, *n, *seed, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "invented members: %d (archived: %d), payments: %d\n", res.Members, res.Archived, res.Payments)
+	return nil
 }
 
 func healthcheck() error {
