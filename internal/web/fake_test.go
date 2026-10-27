@@ -49,7 +49,9 @@ func typeName(id sql.NullInt64) string {
 	return ""
 }
 
-func (f *fakeMembers) ListTypes(context.Context) ([]members.MembershipType, error) { return fakeTypes, nil }
+func (f *fakeMembers) ListTypes(context.Context) ([]members.MembershipType, error) {
+	return fakeTypes, nil
+}
 
 func (f *fakeMembers) ListMembers(_ context.Context, flt members.Filter) ([]members.Member, error) {
 	f.mu.Lock()
@@ -243,7 +245,9 @@ func (f *fakeMembers) EmailList(_ context.Context, list members.MailingList, exc
 	return out, nil
 }
 
-func (f *fakeMembers) ListAudit(context.Context, int64, int) ([]members.AuditEntry, error) { return nil, nil }
+func (f *fakeMembers) ListAudit(context.Context, int64, int) ([]members.AuditEntry, error) {
+	return nil, nil
+}
 
 func (f *fakeMembers) Ping(context.Context) error { return f.pingErr }
 
