@@ -1,11 +1,11 @@
 {{define "content"}}
 <div class="container container-tight py-4">
   <div class="text-center mb-4">
-    <span class="login-brand">{{icon "scuba-mask"}} Clidive <span class="brand-sub">membership</span></span>
+    <span class="login-brand">{{template "wordmark" .}}</span>
   </div>
   <div class="card card-md">
     <div class="card-body">
-      <h1 class="h2 text-center mb-4">Sign in</h1>
+      <h1 class="h2 text-center mb-4">Membership sign in</h1>
       {{template "flash" .}}
       {{if .P}}
       <div class="alert alert-info" role="status"><div class="alert-icon">{{icon "info-circle"}}</div><div>You are signed in as <strong>{{.P.Email}}</strong>, but your account has no access to the committee pages.</div></div>

@@ -28,7 +28,7 @@
 <div class="col-lg-8">
   <section class="card" aria-labelledby="result-h">
     <div class="card-header">
-      <h2 class="card-title" id="result-h">{{$d.Label}} <span class="badge bg-blue-lt ms-1">{{len $d.Emails}} address(es)</span></h2>
+      <h2 class="card-title" id="result-h">{{$d.Label}} <span class="badge bg-secondary-lt ms-1">{{len $d.Emails}} address(es)</span></h2>
       <div class="card-actions">
         <a class="btn btn-outline-secondary btn-sm" href="{{url "/admin/emails.txt"}}?list={{$d.List}}{{if $d.ExcludeLapsed}}&amp;exclude_lapsed=1{{end}}">{{icon "download"}} Download (one per line)</a>
       </div>

@@ -23,8 +23,9 @@ each route's permission), `html/template`, `database/sql` with
 `go-sql-driver/mysql`, and `golang.org/x/crypto` (argon2) plus
 `golang.org/x/term` (password prompt). The UI uses the
 [Tabler](https://tabler.io) CSS kit, vendored and embedded in the binary
-(see `internal/web/static/vendor/README.md`). No JavaScript, no npm, no build
-step.
+(see `internal/web/static/vendor/README.md`), themed to the club's colours
+(black, logo yellow `#fff200`, Open Sans Condensed headings) in
+`internal/web/static/style.css`. No JavaScript, no npm, no build step.
 
 ## Layout
 
