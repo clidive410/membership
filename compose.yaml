@@ -19,6 +19,7 @@ services:
 
   app:
     build: .
+    command: ["serve", "--migrate"]
     depends_on:
       db:
         condition: service_healthy
