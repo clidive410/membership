@@ -1,0 +1,36 @@
+# Local development only. Production runs as a Docker Swarm service defined
+# in the clidive410/infra repository (see README.md).
+services:
+  db:
+    image: mariadb:11
+    environment:
+      MARIADB_ROOT_PASSWORD: devroot
+      MARIADB_DATABASE: membership
+      MARIADB_USER: membership
+      MARIADB_PASSWORD: devpassword
+    ports:
+      - "127.0.0.1:3307:3306"
+    volumes:
+      - dbdata:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 20
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_DSN: "membership:devpassword@tcp(db:3306)/membership"
+      SESSION_SECRET: "dev-only-session-secret-change-me-0123456789"
+      BASE_URL: "http://localhost:8080"
+      COOKIE_SECURE: "false"
+      LOG_FORMAT: text
+    ports:
+      - "127.0.0.1:8080:8080"
+    profiles: ["app"]
+
+volumes:
+  dbdata:
