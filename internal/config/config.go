@@ -27,8 +27,10 @@ type Config struct {
 	SessionTTL    time.Duration // SESSION_TTL, default 12h
 	LogLevel      slog.Level    // LOG_LEVEL: debug, info, warn, error
 	LogFormat     string        // LOG_FORMAT: json (default) or text
-	AutoMigrate   bool          // AUTO_MIGRATE, run schema migrations at startup (default true)
-	MailFrom      string        // MAIL_FROM, sender for future emails (not used yet), default membership@clidive.org
+	// MIGRATE_ON_START: apply pending migrations before serving (default
+	// false; `serve --migrate` forces it). AUTO_MIGRATE is a deprecated alias.
+	MigrateOnStart bool
+	MailFrom       string // MAIL_FROM, sender for future emails (not used yet), default membership@clidive.org
 	// TRUSTED_PROXIES: comma-separated CIDRs of reverse proxies whose
 	// X-Forwarded-For is believed (e.g. the Swarm overlay network).
 	TrustedProxies []netip.Prefix
@@ -120,9 +122,14 @@ func Load(getenv Getenv) (*Config, error) {
 	if err != nil {
 		errs = append(errs, fmt.Errorf("COOKIE_SECURE: %w", err))
 	}
-	c.AutoMigrate, err = parseBool(get("AUTO_MIGRATE", ""), true)
+	migrateName := "MIGRATE_ON_START"
+	migrate := get(migrateName, "")
+	if migrate == "" {
+		migrateName, migrate = "AUTO_MIGRATE", get("AUTO_MIGRATE", "")
+	}
+	c.MigrateOnStart, err = parseBool(migrate, false)
 	if err != nil {
-		errs = append(errs, fmt.Errorf("AUTO_MIGRATE: %w", err))
+		errs = append(errs, fmt.Errorf("%s: %w", migrateName, err))
 	}
 
 	c.SessionTTL, err = time.ParseDuration(get("SESSION_TTL", "12h"))

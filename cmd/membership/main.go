@@ -1,6 +1,6 @@
 // Command membership runs the Clidive membership portal and its admin tasks.
 //
-//	membership [serve]                 run the HTTP server (default)
+//	membership [serve] [--migrate]     run the HTTP server (default)
 //	membership migrate                 apply database migrations
 //	membership migrate-legacy          import from the legacy PHP database
 //	membership user <subcommand>       manage login users and roles
@@ -46,11 +46,12 @@ func usage(w io.Writer) {
 	fmt.Fprint(w, `Usage: membership <command> [flags]
 
 Commands:
-  serve            Run the HTTP server (default)
+  serve            Run the HTTP server (default); --migrate (or MIGRATE_ON_START=true)
+                   applies pending migrations first, under a MariaDB named lock
   migrate          Apply database migrations and exit
   migrate-legacy   Import members from the legacy database (-legacy-dsn, -dry-run)
   user             Manage users: set-password, grant, revoke, link, disable, enable, list
-  healthcheck      Exit 0 if the local server's /healthz answers 200
+  healthcheck      Exit 0 if the local server's /healthz answers 200 (HEALTHCHECK_URL overrides)
   seed-dev         Insert invented members into an EMPTY database (-n 40, -seed 1)
   version          Print the version
 
@@ -65,7 +66,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	}
 	switch cmd {
 	case "serve":
-		return serve(ctx)
+		return serve(ctx, args)
 	case "migrate":
 		return migrateCmd(ctx)
 	case "migrate-legacy":
@@ -119,10 +120,18 @@ func openAppDB(ctx context.Context, log *slog.Logger) (*members.Store, *auth.Sto
 	return members.NewStore(conn), auth.NewStore(conn), func() { conn.Close() }, nil
 }
 
-func serve(ctx context.Context) error {
+func serve(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
+	migrate := fs.Bool("migrate", false, "apply pending migrations before listening (also MIGRATE_ON_START=true)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 	cfg, err := config.Load(os.Getenv)
 	if err != nil {
 		return err
+	}
+	if *migrate {
+		cfg.MigrateOnStart = true
 	}
 	log := newLogger(cfg.LogLevel, cfg.LogFormat)
 	slog.SetDefault(log)
@@ -135,8 +144,14 @@ func serve(ctx context.Context) error {
 		return err
 	}
 	defer conn.Close()
-	if cfg.AutoMigrate {
+	if cfg.MigrateOnStart {
 		if err := db.Migrate(ctx, conn, log); err != nil {
+			if errors.Is(err, db.ErrLockTimeout) {
+				log.Error("could not obtain the migration lock; another instance is probably still migrating. Exiting without serving.",
+					"lock", db.MigrationLock, "timeout", db.DefaultLockTimeout.String())
+			} else {
+				log.Error("migrations failed; exiting without serving", "err", err)
+			}
 			return err
 		}
 	}

@@ -18,7 +18,7 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.ListenAddr != ":8080" || !c.CookieSecure || c.SessionTTL != 12*time.Hour || !c.AutoMigrate {
+	if c.ListenAddr != ":8080" || !c.CookieSecure || c.SessionTTL != 12*time.Hour || c.MigrateOnStart {
 		t.Errorf("unexpected defaults: %+v", c)
 	}
 	if c.BasePath() != "/membership" {
@@ -63,5 +63,39 @@ func TestTrustedProxies(t *testing.T) {
 	base["TRUSTED_PROXIES"] = "not-an-ip"
 	if _, err := Load(env(base)); err == nil {
 		t.Error("expected an error for an invalid proxy")
+	}
+}
+
+func TestMigrateOnStart(t *testing.T) {
+	base := map[string]string{
+		"DB_DSN":         "u:p@tcp(db:3306)/membership",
+		"SESSION_SECRET": "0123456789abcdef0123456789abcdef",
+	}
+	for _, tc := range []struct {
+		env  map[string]string
+		want bool
+	}{
+		{map[string]string{}, false},
+		{map[string]string{"MIGRATE_ON_START": "true"}, true},
+		{map[string]string{"AUTO_MIGRATE": "true"}, true},
+		{map[string]string{"MIGRATE_ON_START": "false", "AUTO_MIGRATE": "true"}, false},
+	} {
+		m := map[string]string{}
+		for k, v := range base {
+			m[k] = v
+		}
+		for k, v := range tc.env {
+			m[k] = v
+		}
+		c, err := Load(env(m))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.MigrateOnStart != tc.want {
+			t.Errorf("%v: MigrateOnStart = %v", tc.env, c.MigrateOnStart)
+		}
+	}
+	if _, err := Load(env(map[string]string{"DB_DSN": "x", "SESSION_SECRET": base["SESSION_SECRET"], "MIGRATE_ON_START": "maybe"})); err == nil {
+		t.Error("expected error for invalid MIGRATE_ON_START")
 	}
 }
