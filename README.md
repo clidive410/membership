@@ -55,7 +55,7 @@ export BASE_URL='http://localhost:8080' COOKIE_SECURE=false LOG_FORMAT=text
 
 go run ./cmd/membership migrate
 go run ./cmd/membership user set-password -email you@example.org -role admin   # prompts for a password
-go run ./cmd/membership serve
+go run ./cmd/membership serve            # add --migrate to apply migrations first
 ```
 
 Then open <http://localhost:8080/> and sign in.
@@ -68,8 +68,10 @@ docker compose exec db mariadb -uroot -pdevroot -e "CREATE DATABASE membership_u
 export DB_DSN='membership:devpassword@tcp(127.0.0.1:3307)/membership_ui'
 go run ./cmd/membership migrate
 go run ./cmd/membership seed-dev -n 40      # deterministic; -seed picks another set
-``` To run the whole stack in
-containers: `docker compose --profile app up --build`.
+```
+
+To run the whole stack in containers: `docker compose --profile app up --build`
+(the compose app runs `serve --migrate`).
 
 ### Tests
 
@@ -93,7 +95,8 @@ CI runs them against a MariaDB 11 service container.
 ## Configuration
 
 Every variable can also be given as a file by setting `NAME_FILE` instead of
-`NAME` (for example `DB_DSN_FILE=/run/secrets/membership_db_dsn`).
+`NAME` (for example `DB_DSN_FILE=/run/secrets/membership_db_dsn`). The file's
+contents are trimmed of surrounding whitespace. If both are set, `NAME` wins.
 
 | Variable         | Default                  | Description |
 |------------------|--------------------------|-------------|
@@ -102,9 +105,10 @@ Every variable can also be given as a file by setting `NAME_FILE` instead of
 | `BASE_URL`       | `http://localhost:8080`  | Public URL, e.g. `https://members.clidive.org`. A path such as `https://clidive.org/membership` mounts the app under that prefix. |
 | `COOKIE_SECURE`  | `true` if BASE_URL is https | Mark cookies `Secure`. |
 | `COOKIE_DOMAIN`  | (host-only)              | Session cookie domain, e.g. `clidive.org`, so the cookie also reaches the WordPress site for `/auth/verify`. |
-| `LISTEN_ADDR`    | `:8080`                  | HTTP listen address. |
+| `LISTEN_ADDR`    | `:8080`                  | HTTP listen address. The healthcheck probes its port on 127.0.0.1. |
 | `SESSION_TTL`    | `12h`                    | Session lifetime (Go duration). |
-| `AUTO_MIGRATE`   | `true`                   | Apply migrations at startup. |
+| `MIGRATE_ON_START` | `false`                | `true` makes `serve` apply pending migrations before listening, like `serve --migrate`. `AUTO_MIGRATE` is a deprecated alias, used only when `MIGRATE_ON_START` is unset. |
+| `HEALTHCHECK_URL` | (derived)               | Only for `membership healthcheck`: URL to probe instead of `http://127.0.0.1:<port of LISTEN_ADDR><BASE_URL path>/healthz`. |
 | `LOG_LEVEL`      | `info`                   | `debug`, `info`, `warn`, `error`. |
 | `LOG_FORMAT`     | `json`                   | `json` or `text` (log/slog). |
 | `MAIL_FROM`      | `membership@clidive.org` | Sender for future emails. Not used yet. |
@@ -207,16 +211,97 @@ member with `user link` get the header.
 
 The service runs as a Docker Swarm service defined in the
 [`clidive410/infra`](https://github.com/clidive410/infra) repository
-(`terraform/blog`). This repository does not deploy anything itself.
+(`terraform/blog`). This repository only builds the image and tells infra
+which one to run.
 
-- **Image:** CI builds on every push and pull request and pushes
-  `ghcr.io/clidive410/membership:latest` and `:sha-<commit>` on pushes to `main`.
-  It is a static binary on distroless, running as a non-root user, with a
-  built-in `HEALTHCHECK` (`membership healthcheck`).
+### Release flow
+
+1. A push to `main` runs CI: gofmt, vet, `go test -race` (with the MariaDB
+   integration tests), then builds the image and pushes
+   `ghcr.io/clidive410/membership:main` and `:sha-<short sha>`.
+2. The `deploy` job clones `clidive410/infra` with the `INFRA_PUSH_TOKEN`
+   secret and writes the pushed digest to
+   `terraform/blog/membership-image.json`:
+   ```json
+   {
+     "image": "ghcr.io/clidive410/membership@sha256:<digest>"
+   }
+   ```
+   It commits that as `membership: deploy <short sha>` (author
+   `clidive-ci <ci@clidive.org>`) straight to infra `main`, and skips the
+   commit when the digest is already pinned. Runs on `main` are serialised,
+   so pins arrive in commit order.
+3. Infra's Terraform reads the file and rolls the Swarm service to the
+   pinned digest.
+
+Pull requests run the tests and build the image without pushing it.
+
+**Owner setup:** add a repository secret `INFRA_PUSH_TOKEN` to
+`clidive410/membership`: a fine-grained personal access token, resource owner
+`clidive410`, repository access only `clidive410/infra`, repository
+permission **Contents: Read and write** (Metadata: Read is added
+automatically). If infra `main` is branch-protected, the token's owner must
+be allowed to push to it directly. Without the secret the deploy job fails
+with an explicit error. Images in ghcr.io must be pullable by the Swarm
+nodes (public package or registry credentials on the nodes).
+
+### Image
+
+- Static binary on `gcr.io/distroless/static-debian12:nonroot`: no shell, no
+  curl, runs as `nonroot` (65532).
+- The binary is **`/usr/local/bin/membership`**. It is the entrypoint and
+  the default command is `serve`.
+- Health check, for the Dockerfile `HEALTHCHECK` (built in) and the Swarm
+  service definition:
+  ```json
+  ["CMD", "/usr/local/bin/membership", "healthcheck"]
+  ```
+  It GETs `http://127.0.0.1:<port of LISTEN_ADDR><BASE_URL path>/healthz`
+  (or `HEALTHCHECK_URL`) with a 3 second timeout and exits 0 on `200`, 1
+  otherwise. `/healthz` returns 503 when the database is unreachable. It needs
+  no secrets.
+
+### Migrations on start
+
+Run the service as `serve --migrate` (or set `MIGRATE_ON_START=true`). Before
+listening, each task takes the MariaDB named lock `membership_migrate`
+(`GET_LOCK`, 60 second timeout), applies pending embedded migrations, and
+releases the lock. Tasks that start together therefore migrate one at a time;
+the second finds nothing to do. A task that cannot get the lock within 60
+seconds logs `could not obtain the migration lock` and exits non-zero, and
+Swarm restarts it. A failed migration also exits non-zero without serving.
+`membership migrate` still applies migrations as a one-off command.
+
+**Rule: every migration must be backward compatible with the previous
+release (expand/contract).** With a start-first rolling update the old task
+keeps serving on the new schema while the new task migrates and starts. So
+add nullable or defaulted columns and new tables first; ship code that stops
+using a column; drop or rename it in a later release. Never rename or drop
+something the running release still reads, and never add a `NOT NULL` column
+without a default.
+
+### Environment
+
+| Variable | Notes for the Swarm service |
+|----------|-----------------------------|
+| `LISTEN_ADDR` | `:8080` (default). |
+| `DB_DSN_FILE` | Swarm secret, e.g. `/run/secrets/membership_db_dsn`, holding `membership:<pw>@tcp(clidive_db:3306)/membership`. Or `DB_DSN`. |
+| `SESSION_SECRET_FILE` | Swarm secret, at least 32 random characters. Or `SESSION_SECRET`. |
+| `BASE_URL` | `https://members.clidive.org` |
+| `COOKIE_SECURE` | Defaults to `true` for an https `BASE_URL`. |
+| `COOKIE_DOMAIN` | `clidive.org`, so `/auth/verify` sees the session on the WordPress site. |
+| `TRUSTED_PROXIES` | CIDR of the overlay network Caddy reaches the service on, e.g. `10.0.0.0/8`. |
+| `LOG_FORMAT` | `json` (default). |
+| `LOG_LEVEL` | `info` (default). |
+| `MIGRATE_ON_START` | `true`, or run the command `serve --migrate`. |
+
+All variables are described under [Configuration](#configuration).
+
+### Routing, database, shutdown
+
 - **Routing:** Caddy reverse-proxies `https://members.clidive.org` to the
-  service on port 8080 (`BASE_URL=https://members.clidive.org`,
-  `COOKIE_DOMAIN=clidive.org`). Hosting under a path prefix instead also works:
-  set `BASE_URL` with the path and use Caddy `handle /membership/*` (not
+  service on port 8080. Hosting under a path prefix instead also works: set
+  `BASE_URL` with the path and use Caddy `handle /membership/*` (not
   `handle_path`), because the app strips the prefix itself.
 - **Database:** a dedicated database and user on the shared `clidive_db`
   MariaDB 11 service, for example:
@@ -225,10 +310,8 @@ The service runs as a Docker Swarm service defined in the
   CREATE USER 'membership'@'%' IDENTIFIED BY '...';
   GRANT ALL PRIVILEGES ON membership.* TO 'membership'@'%';
   ```
-  Migrations run at startup and are serialised with a MariaDB named lock, so
-  several replicas can start safely.
-- **Secrets:** pass `DB_DSN_FILE` and `SESSION_SECRET_FILE` as Swarm secrets.
-- **Shutdown:** SIGTERM drains in-flight requests for up to 15 seconds.
+- **Shutdown:** SIGTERM drains in-flight requests for up to 15 seconds; give
+  the service a `stop_grace_period` of at least 20 seconds.
 
 ## Behaviour compared with the legacy app
 
