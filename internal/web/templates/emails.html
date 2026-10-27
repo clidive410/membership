@@ -1,0 +1,16 @@
+{{define "content"}}
+{{$d := .Data}}
+<h1>Email lists</h1>
+<p>Addresses of members who are not archived and have “use for mailing list” ticked for that address (same rule as the old <code>email-all-auto</code> view).</p>
+<form method="get" action="{{url "/admin/emails"}}" class="inline">
+  <p><label for="list">List</label><select id="list" name="list">
+    {{range $d.Lists}}<option value="{{.Key}}" {{if eq .Key $d.List}}selected{{end}}>{{.Label}}</option>{{end}}
+  </select></p>
+  <p class="check"><label><input type="checkbox" name="exclude_lapsed" value="1" {{if $d.ExcludeLapsed}}checked{{end}}> Exclude members of type Lapsed</label></p>
+  <p><button type="submit">Show</button></p>
+</form>
+<h2>{{$d.Label}}: {{len $d.Emails}} address(es)</h2>
+<p><label for="emails">Copy into the Bcc field of your email</label></p>
+<textarea id="emails" rows="10" readonly>{{$d.Joined}}</textarea>
+<p><a class="button" href="{{url "/admin/emails.txt"}}?list={{$d.List}}{{if $d.ExcludeLapsed}}&amp;exclude_lapsed=1{{end}}">Download as text (one per line)</a></p>
+{{end}}

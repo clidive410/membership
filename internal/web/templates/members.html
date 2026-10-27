@@ -1,0 +1,55 @@
+{{define "content"}}
+{{$d := .Data}}
+<h1>Members</h1>
+<form method="get" action="{{url "/admin/members"}}" class="filters" role="search">
+  <p><label for="q">Search</label>
+  <input id="q" name="q" type="search" value="{{$d.Filter.Query}}" placeholder="Name, email, BSAC no., postcode or ID"></p>
+  <p><label for="type">Clidive type</label>
+  <select id="type" name="type">
+    <option value="">Any type</option>
+    {{range $d.Types}}<option value="{{.ID}}" {{if eq (itoa .ID) $d.TypeArg}}selected{{end}}>{{.Name}}</option>{{end}}
+    <option value="none" {{if eq $d.TypeArg "none"}}selected{{end}}>No type set</option>
+  </select></p>
+  <p><label for="status">Status</label>
+  <select id="status" name="status">
+    <option value="current" {{if eq $d.Filter.Status "current"}}selected{{end}}>Current (not archived, incl. Lapsed)</option>
+    <option value="notlapsed" {{if eq $d.Filter.Status "notlapsed"}}selected{{end}}>Current, excluding Lapsed type</option>
+    <option value="archived" {{if eq $d.Filter.Status "archived"}}selected{{end}}>Archived</option>
+    <option value="all" {{if eq $d.Filter.Status "all"}}selected{{end}}>All</option>
+  </select></p>
+  {{if ne $d.Filter.Sort "last_name"}}<input type="hidden" name="sort" value="{{$d.Filter.Sort}}">{{end}}
+  {{if $d.Filter.Desc}}<input type="hidden" name="dir" value="desc">{{end}}
+  <p><button type="submit">Filter</button> <a href="{{url "/admin/members"}}">Reset</a></p>
+</form>
+{{if permit .P "members.export"}}
+<p class="actions">
+  <a class="button" href="{{url "/admin/export.csv"}}">Current to CSV</a>
+  <a class="button" href="{{url "/admin/export.csv"}}?status=all">All (incl. archived) to CSV</a>
+</p>
+{{end}}
+<p>{{$d.Count}} member(s).</p>
+<div class="scroll">
+<table class="list">
+  <thead><tr>
+    {{range $d.Headers}}<th scope="col"{{if .AriaSort}} aria-sort="{{.AriaSort}}"{{end}}><a href="{{.Href}}">{{.Label}}</a></th>{{end}}
+  </tr></thead>
+  <tbody>
+  {{range $d.Members}}
+    <tr{{if .Archived}} class="archived"{{end}}>
+      <td><a href="{{url "/admin/members/"}}{{.ID}}">{{.ID}}</a></td>
+      <td><a href="{{url "/admin/members/"}}{{.ID}}">{{.FirstName}}</a></td>
+      <td><a href="{{url "/admin/members/"}}{{.ID}}">{{.LastName}}</a>{{if .Archived}} <span class="tag">archived</span>{{end}}</td>
+      <td>{{.Email1}}</td>
+      <td>{{ukdate .BSACRenewalDue}}</td>
+      <td>{{.TypeName}}</td>
+      <td>{{ukdate .MembershipExpiry}}{{if .Expired $d.Now}} <span class="tag warn">expired</span>{{end}}</td>
+      <td>{{ukdate .LastPaid}}</td>
+      <td>{{.Notes}}</td>
+    </tr>
+  {{else}}
+    <tr><td colspan="9">No members match.</td></tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{end}}

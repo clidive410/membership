@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{{.Title}} · Clidive membership</title>
+<link rel="stylesheet" href="{{url "/static/style.css"}}">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site">
+  <span class="brand">Clidive membership</span>
+  {{if .P}}
+  <nav aria-label="Main">
+    <ul>
+      {{if permit .P "members.view"}}<li><a href="{{url "/admin/members"}}">Members</a></li>{{end}}
+      {{if permit .P "members.create"}}<li><a href="{{url "/admin/members/new"}}">New member</a></li>{{end}}
+      {{if permit .P "payments.record"}}<li><a href="{{url "/admin/payments"}}">Payment management</a></li>{{end}}
+      {{if permit .P "members.emaillists"}}<li><a href="{{url "/admin/emails"}}">Email lists</a></li>{{end}}
+    </ul>
+  </nav>
+  <form method="post" action="{{url "/logout"}}" class="logout">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <span class="who">{{.P.Email}}</span>
+    <button type="submit" class="link">Sign out</button>
+  </form>
+  {{end}}
+</header>
+<main id="main">
+{{if .Flash}}<p class="flash" role="status">{{.Flash}}</p>{{end}}
+{{template "content" .}}
+</main>
+</body>
+</html>
