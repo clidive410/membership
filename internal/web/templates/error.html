@@ -1,0 +1,14 @@
+{{define "content"}}
+<div class="{{if not .Shell}}container container-tight py-4{{end}}">
+  <div class="empty">
+    <p class="empty-header" aria-hidden="true">{{.Status}}</p>
+    {{if .Shell}}<h2 class="empty-title">{{.Data}}</h2>
+    {{else}}<h1 class="empty-title">{{.Title}}</h1>
+    <p class="empty-subtitle text-secondary">{{.Data}}</p>{{end}}
+    <div class="empty-action">
+      {{if .Shell}}<a class="btn btn-primary" href="{{url "/admin/members"}}">{{icon "arrow-left"}} Back to the member list</a>
+      {{else}}<a class="btn btn-primary" href="{{url "/login"}}">Go to sign in</a>{{end}}
+    </div>
+  </div>
+</div>
+{{end}}

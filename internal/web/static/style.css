@@ -1,0 +1,65 @@
+/* Clidive overrides on top of Tabler (vendor/tabler/css/tabler.min.css).
+   Keep this file small: prefer Tabler classes in the templates. */
+
+:root {
+  --clidive-navy: #0d2b4a;
+}
+
+/* Sidebar: club navy instead of Tabler's default dark. */
+.sidebar { background: var(--clidive-navy); }
+.brand { gap: .5rem; font-weight: 700; }
+.brand .icon, .login-brand .icon { width: 1.75rem; height: 1.75rem; stroke-width: 1.5; }
+.brand-sub { font-weight: 400; opacity: .75; }
+.login-brand { display: inline-flex; align-items: center; gap: .5rem; font-size: 1.5rem; font-weight: 700; color: var(--clidive-navy); }
+.sidebar-user-text { min-width: 0; }
+.sidebar-user .btn .icon { margin-inline-end: .25rem; }
+
+/* No JavaScript: below the lg breakpoint the sidebar becomes a compact top
+   bar with the links in a wrapping row, instead of a collapsible menu. */
+@media (max-width: 991.98px) {
+  .sidebar > .container-fluid { flex-wrap: wrap; }
+  .sidebar .navbar-collapse { flex-basis: 100%; }
+  .sidebar .navbar-nav { flex-direction: row; flex-wrap: wrap; gap: .25rem; }
+  .sidebar .navbar-nav .nav-link { padding: .4rem .6rem; }
+  .sidebar-user { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; border-top: 1px solid rgba(255,255,255,.1); }
+  .sidebar-user form { padding: .5rem 1rem !important; }
+}
+
+.topbar { min-height: 3.5rem; border-bottom: var(--tblr-border-width) solid var(--tblr-border-color); background: var(--tblr-bg-surface); }
+.topbar-search { width: 100%; max-width: 22rem; }
+
+/* Visible keyboard focus everywhere (Tabler's focus ring is subtle). */
+a:focus-visible, button:focus-visible, .btn:focus-visible, .form-control:focus-visible,
+.form-select:focus-visible, .form-check-input:focus-visible, summary:focus-visible, .page-link:focus-visible {
+  outline: 3px solid #f0b400; outline-offset: 2px;
+}
+.skip-link { position: absolute; left: -999px; top: .5rem; z-index: 2000; padding: .5rem 1rem; background: #fff; border-radius: 4px; }
+.skip-link:focus { left: .5rem; }
+
+.heading-badges { display: inline-flex; gap: .25rem; vertical-align: middle; font-size: .75rem; }
+
+/* Tables: header stays visible while the table body scrolls. */
+.table-scroll { max-height: calc(100vh - 17rem); min-height: 12rem; overflow: auto; }
+.table-sticky thead th { position: sticky; top: 0; z-index: 2; background: var(--tblr-bg-surface-tertiary, #f6f8fb); }
+.sort-link { display: inline-flex; align-items: center; gap: .15rem; color: inherit; text-decoration: none; white-space: nowrap; }
+.sort-link:hover { color: var(--tblr-primary); }
+th.text-end .sort-link { flex-direction: row; }
+.sort-icon .icon { width: .9rem; height: .9rem; opacity: .45; }
+th[aria-sort] .sort-icon .icon { opacity: 1; color: var(--tblr-primary); }
+.num { font-variant-numeric: tabular-nums; }
+.cell-email { max-width: 16rem; }
+.cell-notes { max-width: 18rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-archived td { color: var(--tblr-secondary); }
+
+/* Member form: a disabled (read-only) section looks muted. */
+fieldset[disabled] .card-body { background: var(--tblr-bg-surface-secondary, #f9fafb); }
+.form-actions { position: sticky; bottom: 0; z-index: 3; box-shadow: 0 -2px 8px rgba(0,0,0,.06); }
+
+.audit > summary { cursor: pointer; }
+.audit-changes { white-space: pre-wrap; word-break: break-word; font-size: .75rem; }
+.emails-box { font-size: .8rem; }
+
+@media print {
+  .sidebar, .topbar, .form-actions { display: none !important; }
+  .page-wrapper { margin: 0 !important; }
+}

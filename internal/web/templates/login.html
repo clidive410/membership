@@ -1,0 +1,32 @@
+{{define "content"}}
+<div class="container container-tight py-4">
+  <div class="text-center mb-4">
+    <span class="login-brand">{{icon "scuba-mask"}} Clidive <span class="brand-sub">membership</span></span>
+  </div>
+  <div class="card card-md">
+    <div class="card-body">
+      <h1 class="h2 text-center mb-4">Sign in</h1>
+      {{template "flash" .}}
+      {{if .P}}
+      <div class="alert alert-info" role="status"><div class="alert-icon">{{icon "info-circle"}}</div><div>You are signed in as <strong>{{.P.Email}}</strong>, but your account has no access to the committee pages.</div></div>
+      <form method="post" action="{{url "/logout"}}"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><button type="submit" class="btn btn-outline-secondary w-100">{{icon "logout"}} Sign out</button></form>
+      {{else}}
+      {{with .Data.Error}}<div class="alert alert-danger" role="alert"><div class="alert-icon">{{icon "alert-triangle"}}</div><div>{{.}}</div></div>{{end}}
+      <form method="post" action="{{url "/login"}}">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <div class="mb-3">
+          <label class="form-label" for="email">Email address</label>
+          <input class="form-control" id="email" name="email" type="email" autocomplete="username" required value="{{.Data.Email}}" autofocus>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="password">Password</label>
+          <input class="form-control" id="password" name="password" type="password" autocomplete="current-password" required>
+        </div>
+        <button type="submit" class="btn btn-primary w-100">{{icon "lock"}} Sign in</button>
+      </form>
+      {{end}}
+    </div>
+  </div>
+  <p class="text-center text-secondary mt-3">Committee access only. Ask the membership secretary if you need an account.</p>
+</div>
+{{end}}

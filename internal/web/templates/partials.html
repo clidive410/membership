@@ -1,0 +1,47 @@
+{{define "navitem"}}<li class="nav-item{{if .Active}} active{{end}}">
+  <a class="nav-link" href="{{.Href}}"{{if .Active}} aria-current="page"{{end}}>
+    <span class="nav-link-icon">{{icon .Icon}}</span><span class="nav-link-title">{{.Label}}</span>
+  </a>
+</li>{{end}}
+
+{{define "flash"}}{{with .Flash}}<div class="alert alert-success" role="status">
+  <div class="alert-icon">{{icon "circle-check"}}</div><div>{{.}}</div>
+</div>{{end}}{{end}}
+
+{{/* input renders a labelled text-like field with inline validation.
+     Keys: ID (also the form name), Label, Value, Err, Type, Max, Req, Hint,
+     Col (grid classes), Auto (autocomplete), Mode (inputmode), Ph (placeholder). */}}
+{{define "input"}}<div class="{{or .Col "col-md-6"}} mb-3">
+  <label class="form-label{{if .Req}} required{{end}}" for="{{.ID}}">{{.Label}}</label>
+  <input class="form-control{{if .Err}} is-invalid{{end}}" id="{{.ID}}" name="{{.ID}}" type="{{or .Type "text"}}" value="{{.Value}}"
+    {{- with .Max}} maxlength="{{.}}"{{end}}{{if .Req}} required{{end}}{{with .Auto}} autocomplete="{{.}}"{{end}}{{with .Mode}} inputmode="{{.}}"{{end}}{{with .Ph}} placeholder="{{.}}"{{end}}
+    {{- if .Err}} aria-invalid="true"{{end}}{{if or .Err .Hint}} aria-describedby="{{if .Err}}{{.ID}}-error{{end}}{{if and .Err .Hint}} {{end}}{{if .Hint}}{{.ID}}-hint{{end}}"{{end}}>
+  {{- with .Err}}<div class="invalid-feedback" id="{{$.ID}}-error">{{.}}</div>{{end}}
+  {{- with .Hint}}<small class="form-hint" id="{{$.ID}}-hint">{{.}}</small>{{end}}
+</div>{{end}}
+
+{{/* check renders a checkbox (or a switch with Switch=true). */}}
+{{define "check"}}<div class="{{or .Col "col-12"}}">
+  <label class="form-check{{if .Switch}} form-switch{{end}}">
+    <input class="form-check-input{{if .Err}} is-invalid{{end}}" type="checkbox" name="{{.ID}}"{{if .Checked}} checked{{end}}{{if .Err}} aria-invalid="true" aria-describedby="{{.ID}}-error"{{end}}>
+    <span class="form-check-label">{{.Label}}</span>
+    {{- with .Hint}}<span class="form-check-description">{{.}}</span>{{end}}
+  </label>
+  {{- with .Err}}<div class="invalid-feedback d-block" id="{{$.ID}}-error">{{.}}</div>{{end}}
+</div>{{end}}
+
+{{define "sorthead"}}<th scope="col" class="{{.Class}}"{{if .AriaSort}} aria-sort="{{.AriaSort}}"{{end}}>
+  <a class="sort-link" href="{{.Href}}">{{.Label}}<span class="sort-icon">{{if eq .AriaSort "ascending"}}{{icon "chevron-up"}}{{else if eq .AriaSort "descending"}}{{icon "chevron-down"}}{{else}}{{icon "selector"}}{{end}}</span></a>
+</th>{{end}}
+
+{{/* typebadge: a coloured badge for a member's Clidive type. */}}
+{{define "typebadge"}}{{if .TypeName}}<span class="badge bg-{{typeColor .TypeID}}-lt">{{.TypeName}}</span>{{else}}<span class="text-secondary">—</span>{{end}}{{end}}
+
+{{define "pagination"}}{{if gt .Pages 1}}<nav aria-label="Pages">
+  <ul class="pagination m-0 ms-auto">
+    <li class="page-item{{if not .Prev}} disabled{{end}}">{{if .Prev}}<a class="page-link" href="{{.Prev}}" rel="prev">‹ Prev</a>{{else}}<span class="page-link" aria-disabled="true">‹ Prev</span>{{end}}</li>
+    {{range .Links}}{{if .Gap}}<li class="page-item disabled"><span class="page-link">…</span></li>
+    {{else}}<li class="page-item{{if .Current}} active{{end}}"><a class="page-link" href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}>{{.N}}</a></li>{{end}}{{end}}
+    <li class="page-item{{if not .Next}} disabled{{end}}">{{if .Next}}<a class="page-link" href="{{.Next}}" rel="next">Next ›</a>{{else}}<span class="page-link" aria-disabled="true">Next ›</span>{{end}}</li>
+  </ul>
+</nav>{{end}}{{end}}

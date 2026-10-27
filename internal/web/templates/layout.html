@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{{.Title}} · Clidive membership</title>
+<link rel="stylesheet" href="{{url "/static/vendor/tabler/css/tabler.min.css"}}">
+<link rel="stylesheet" href="{{url "/static/style.css"}}">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+{{if .Shell}}
+<div class="page">
+  <aside class="navbar navbar-vertical navbar-expand-lg sidebar" data-bs-theme="dark" aria-label="Sidebar">
+    <div class="container-fluid">
+      <a class="navbar-brand navbar-brand-autodark brand" href="{{url "/admin/members"}}">
+        <span class="brand-mark">{{icon "scuba-mask"}}</span>
+        <span class="brand-text">Clidive <span class="brand-sub">membership</span></span>
+      </a>
+      <div class="navbar-collapse" id="sidebar-menu">
+        <nav aria-label="Main">
+          <ul class="navbar-nav pt-lg-3">
+            {{if permit .P "members.view"}}{{template "navitem" (dict "Href" (url "/admin/members") "Icon" "users" "Label" "Members" "Active" (eq .Nav "members"))}}{{end}}
+            {{if permit .P "members.create"}}{{template "navitem" (dict "Href" (url "/admin/members/new") "Icon" "user-plus" "Label" "New member" "Active" (eq .Nav "new"))}}{{end}}
+            {{if permit .P "payments.record"}}{{template "navitem" (dict "Href" (url "/admin/payments") "Icon" "cash" "Label" "Payment management" "Active" (eq .Nav "payments"))}}{{end}}
+            {{if permit .P "members.emaillists"}}{{template "navitem" (dict "Href" (url "/admin/emails") "Icon" "mail" "Label" "Email lists" "Active" (eq .Nav "emails"))}}{{end}}
+          </ul>
+        </nav>
+        <div class="navbar-footer sidebar-user">
+          <div class="d-flex align-items-center gap-2 px-3 py-2">
+            <span class="avatar avatar-sm bg-blue-lt" aria-hidden="true">{{initials .P.Email}}</span>
+            <div class="sidebar-user-text">
+              <div class="text-truncate" title="{{.P.Email}}">{{.P.Email}}</div>
+              <div class="small text-secondary">{{roleLabel .P}}</div>
+            </div>
+          </div>
+          <form method="post" action="{{url "/logout"}}" class="px-3 pb-3">
+            <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+            <button type="submit" class="btn btn-sm btn-outline-light w-100">{{icon "logout"}} Sign out</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </aside>
+  <div class="page-wrapper">
+    <header class="navbar navbar-expand d-print-none topbar{{if eq .Nav "members"}} d-none d-md-flex{{end}}">
+      <div class="container-xl gap-2">
+        {{if ne .Nav "members"}}
+        <form class="topbar-search" method="get" action="{{url "/admin/members"}}" role="search">
+          <label class="visually-hidden" for="topq">Search members</label>
+          <div class="input-icon">
+            <span class="input-icon-addon">{{icon "search"}}</span>
+            <input id="topq" name="q" type="search" class="form-control" placeholder="Search members…">
+          </div>
+        </form>
+        {{end}}
+        <div class="ms-auto d-flex align-items-center gap-2">
+          <span class="text-secondary small d-none d-md-inline">Signed in as <strong>{{.P.Email}}</strong></span>
+        </div>
+      </div>
+    </header>
+    <div class="page-header d-print-none">
+      <div class="container-xl">
+        <div class="row g-2 align-items-center">
+          <div class="col">
+            {{block "pretitle" .}}{{end}}
+            <h1 class="page-title">{{block "heading" .}}{{.Title}}{{end}}</h1>
+          </div>
+          <div class="col-12 col-md-auto ms-auto">
+            <div class="btn-list">{{block "actions" .}}{{end}}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <main class="page-body" id="main" tabindex="-1">
+      <div class="container-xl">
+        {{template "flash" .}}
+        {{template "content" .}}
+      </div>
+    </main>
+    <footer class="footer footer-transparent d-print-none">
+      <div class="container-xl small text-secondary">Clidive membership portal</div>
+    </footer>
+  </div>
+</div>
+{{else}}
+<main class="page page-center" id="main" tabindex="-1">
+  {{template "content" .}}
+</main>
+{{end}}
+</body>
+</html>

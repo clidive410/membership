@@ -1,0 +1,43 @@
+{{define "pretitle"}}<div class="page-pretitle">Mailing</div>{{end}}
+{{define "content"}}
+{{$d := .Data}}
+<div class="row row-cards">
+<div class="col-lg-4">
+  <section class="card" aria-labelledby="choose-h">
+    <div class="card-header"><h2 class="card-title" id="choose-h">Choose a list</h2></div>
+    <div class="card-body">
+      <form method="get" action="{{url "/admin/emails"}}">
+        <div class="mb-3">
+          <label class="form-label" for="list">List</label>
+          <select class="form-select" id="list" name="list">
+            {{range $d.Lists}}<option value="{{.Key}}" {{if eq .Key $d.List}}selected{{end}}>{{.Label}}</option>{{end}}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" name="exclude_lapsed" value="1" {{if $d.ExcludeLapsed}}checked{{end}}>
+            <span class="form-check-label">Exclude members of type Lapsed</span>
+          </label>
+        </div>
+        <button type="submit" class="btn btn-primary w-100">{{icon "list"}} Show addresses</button>
+      </form>
+      <p class="form-hint mt-3 mb-0">Addresses of members who are not archived and have “use for mailing lists” ticked for that address (the rule of the old <code>email-all-auto</code> view).</p>
+    </div>
+  </section>
+</div>
+<div class="col-lg-8">
+  <section class="card" aria-labelledby="result-h">
+    <div class="card-header">
+      <h2 class="card-title" id="result-h">{{$d.Label}} <span class="badge bg-blue-lt ms-1">{{len $d.Emails}} address(es)</span></h2>
+      <div class="card-actions">
+        <a class="btn btn-outline-secondary btn-sm" href="{{url "/admin/emails.txt"}}?list={{$d.List}}{{if $d.ExcludeLapsed}}&amp;exclude_lapsed=1{{end}}">{{icon "download"}} Download (one per line)</a>
+      </div>
+    </div>
+    <div class="card-body">
+      <label class="form-label" for="emails">Copy into the Bcc field of your email</label>
+      <textarea class="form-control font-monospace emails-box" id="emails" rows="12" readonly>{{$d.Joined}}</textarea>
+    </div>
+  </section>
+</div>
+</div>
+{{end}}
