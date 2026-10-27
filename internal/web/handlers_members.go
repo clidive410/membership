@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gorilla/mux"
+
 	"github.com/clidive410/membership/internal/auth"
 	"github.com/clidive410/membership/internal/members"
 )
@@ -123,7 +125,7 @@ func (s *Server) memberPage(w http.ResponseWriter, r *http.Request, status int, 
 }
 
 func pathID(r *http.Request, name string) (int64, bool) {
-	id, err := strconv.ParseInt(r.PathValue(name), 10, 64)
+	id, err := strconv.ParseInt(mux.Vars(r)[name], 10, 64)
 	return id, err == nil && id > 0
 }
 

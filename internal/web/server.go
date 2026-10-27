@@ -7,8 +7,11 @@ import (
 	"embed"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
+
+	"github.com/gorilla/mux"
 
 	"github.com/clidive410/membership/internal/auth"
 	"github.com/clidive410/membership/internal/members"
@@ -55,8 +58,12 @@ type Options struct {
 	BasePath      string // e.g. "/membership", "" for root
 	CookieSecure  bool
 	CookieDomain  string
-	SessionTTL    time.Duration
-	Now           func() time.Time
+	// TrustedProxies are CIDR prefixes of reverse proxies (e.g. Caddy)
+	// whose X-Forwarded-For entries are believed. Empty: the TCP peer is
+	// the client.
+	TrustedProxies []netip.Prefix
+	SessionTTL     time.Duration
+	Now            func() time.Time
 }
 
 // Server holds the HTTP handlers.
@@ -88,53 +95,94 @@ func New(opt Options) *Server {
 	return s
 }
 
+// requestTimeout bounds the time a handler may take; the request context
+// (and with it any database query) is cancelled after it. It is shorter
+// than the http.Server WriteTimeout so the client still gets an answer.
+const requestTimeout = 30 * time.Second
+
 // Handler returns the root HTTP handler with all middleware applied.
 func (s *Server) Handler() http.Handler {
-	mux := http.NewServeMux()
+	r := mux.NewRouter()
+	get := func(path string, h http.HandlerFunc) *mux.Route {
+		// net/http "GET" patterns also answered HEAD; keep that.
+		return r.HandleFunc(path, h).Methods(http.MethodGet, http.MethodHead)
+	}
 
-	mux.HandleFunc("GET /healthz", s.handleHealth)
-	mux.HandleFunc("GET /auth/verify", s.handleVerify)
-	mux.Handle("GET /static/", http.FileServerFS(staticFS))
+	get("/healthz", s.handleHealth)
+	get("/auth/verify", s.handleVerify)
+	r.PathPrefix("/static/").Methods(http.MethodGet, http.MethodHead).Handler(staticHandler())
 
-	mux.HandleFunc("GET /login", s.handleLoginForm)
-	mux.HandleFunc("POST /login", s.handleLogin)
-	mux.HandleFunc("POST /logout", s.handleLogout)
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+	get("/login", s.handleLoginForm)
+	r.HandleFunc("/login", s.handleLogin).Methods(http.MethodPost)
+	r.HandleFunc("/logout", s.handleLogout).Methods(http.MethodPost)
+	get("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, s.url("/admin/members"), http.StatusSeeOther)
 	})
 
 	// Admin UI (committee and membership managers). Every route names the
-	// permission it needs; see internal/auth/roles.go.
-	mux.Handle("GET /admin/members", s.require(auth.PermViewMembers, s.handleMemberList))
-	mux.Handle("GET /admin/members/new", s.require(auth.PermCreateMembers, s.handleMemberNew))
-	mux.Handle("POST /admin/members", s.require(auth.PermCreateMembers, s.handleMemberCreate))
-	mux.Handle("GET /admin/members/{id}", s.require(auth.PermViewMembers, s.handleMemberShow))
-	mux.Handle("POST /admin/members/{id}", s.require(auth.PermViewMembers, s.handleMemberUpdate))
-	mux.Handle("POST /admin/members/{id}/archive", s.require(auth.PermArchiveMembers, s.handleMemberArchive))
-	mux.Handle("POST /admin/members/{id}/restore", s.require(auth.PermArchiveMembers, s.handleMemberRestore))
-	mux.Handle("POST /admin/members/{id}/payments", s.require(auth.PermRecordPayments, s.handlePaymentAdd))
-	mux.Handle("POST /admin/members/{id}/payments/{pid}/delete", s.require(auth.PermRecordPayments, s.handlePaymentDelete))
-	mux.Handle("GET /admin/payments", s.require(auth.PermRecordPayments, s.handleBulkPaymentForm))
-	mux.Handle("POST /admin/payments", s.require(auth.PermRecordPayments, s.handleBulkPayment))
-	mux.Handle("GET /admin/export.csv", s.require(auth.PermExport, s.handleExportCSV))
-	mux.Handle("GET /admin/emails", s.require(auth.PermEmailLists, s.handleEmailLists))
-	mux.Handle("GET /admin/emails.txt", s.require(auth.PermEmailLists, s.handleEmailListText))
+	// permission it needs (see internal/auth/roles.go); the subrouter's
+	// middleware enforces sign-in and that permission.
+	admin := r.PathPrefix("/admin").Subrouter()
+	perms := map[*mux.Route]auth.Permission{}
+	route := func(method, path string, perm auth.Permission, h http.HandlerFunc) {
+		methods := []string{method}
+		if method == http.MethodGet {
+			methods = append(methods, http.MethodHead)
+		}
+		perms[admin.HandleFunc(path, h).Methods(methods...)] = perm
+	}
+	route("GET", "/members", auth.PermViewMembers, s.handleMemberList)
+	route("GET", "/members/new", auth.PermCreateMembers, s.handleMemberNew) // before /members/{id}
+	route("POST", "/members", auth.PermCreateMembers, s.handleMemberCreate)
+	route("GET", "/members/{id}", auth.PermViewMembers, s.handleMemberShow)
+	route("POST", "/members/{id}", auth.PermViewMembers, s.handleMemberUpdate)
+	route("POST", "/members/{id}/archive", auth.PermArchiveMembers, s.handleMemberArchive)
+	route("POST", "/members/{id}/restore", auth.PermArchiveMembers, s.handleMemberRestore)
+	route("POST", "/members/{id}/payments", auth.PermRecordPayments, s.handlePaymentAdd)
+	route("POST", "/members/{id}/payments/{pid}/delete", auth.PermRecordPayments, s.handlePaymentDelete)
+	route("GET", "/payments", auth.PermRecordPayments, s.handleBulkPaymentForm)
+	route("POST", "/payments", auth.PermRecordPayments, s.handleBulkPayment)
+	route("GET", "/export.csv", auth.PermExport, s.handleExportCSV)
+	route("GET", "/emails", auth.PermEmailLists, s.handleEmailLists)
+	route("GET", "/emails.txt", auth.PermEmailLists, s.handleEmailListText)
+	admin.Use(s.requireSignIn, s.requirePermission(perms))
 
 	// Extension point: member self-service routes (e.g. GET/POST /me) will be
 	// registered here, guarded by auth.PermEditOwnPersonal and applying only
 	// Principal.SelfEditableGroups().
 
-	var h http.Handler = mux
-	h = s.checkCSRF(h)
-	h = http.NewCrossOriginProtection().Handler(h)
-	h = s.loadSession(h)
-	h = securityHeaders(h)
-	if s.opt.BasePath != "" {
-		h = s.stripBase(h)
+	// The chain below wraps the whole router (not router.Use), so it also
+	// applies to 404 and 405 responses. Outermost first.
+	return chain(r,
+		requestID,
+		s.logRequests,
+		s.recoverPanics,
+		s.clientIP,
+		timeout(requestTimeout),
+		s.stripBase,
+		securityHeaders,
+		s.loadSession,
+		http.NewCrossOriginProtection().Handler,
+		s.checkCSRF,
+	)
+}
+
+// chain wraps h in middleware, the first being the outermost.
+func chain(h http.Handler, mw ...func(http.Handler) http.Handler) http.Handler {
+	for i := len(mw) - 1; i >= 0; i-- {
+		h = mw[i](h)
 	}
-	h = s.logRequests(h)
-	h = s.recoverPanics(h)
 	return h
+}
+
+// staticHandler serves the embedded stylesheets. Vendored files are
+// immutable for a given version, so browsers may cache them for a day.
+func staticHandler() http.Handler {
+	fs := http.FileServerFS(staticFS)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		fs.ServeHTTP(w, r)
+	})
 }
 
 // url prefixes an absolute in-app path with the base path.
@@ -142,6 +190,9 @@ func (s *Server) url(p string) string { return s.opt.BasePath + p }
 
 func (s *Server) stripBase(next http.Handler) http.Handler {
 	base := s.opt.BasePath
+	if base == "" {
+		return next
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == base {
 			http.Redirect(w, r, base+"/", http.StatusMovedPermanently)

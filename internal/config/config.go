@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
@@ -28,6 +29,9 @@ type Config struct {
 	LogFormat     string        // LOG_FORMAT: json (default) or text
 	AutoMigrate   bool          // AUTO_MIGRATE, run schema migrations at startup (default true)
 	MailFrom      string        // MAIL_FROM, sender for future emails (not used yet), default membership@clidive.org
+	// TRUSTED_PROXIES: comma-separated CIDRs of reverse proxies whose
+	// X-Forwarded-For is believed (e.g. the Swarm overlay network).
+	TrustedProxies []netip.Prefix
 }
 
 // BasePath returns the path prefix of BaseURL without a trailing slash
@@ -128,6 +132,20 @@ func Load(getenv Getenv) (*Config, error) {
 
 	if err := c.LogLevel.UnmarshalText([]byte(get("LOG_LEVEL", "info"))); err != nil {
 		errs = append(errs, fmt.Errorf("LOG_LEVEL: %w", err))
+	}
+	for _, v := range strings.Split(get("TRUSTED_PROXIES", ""), ",") {
+		if v = strings.TrimSpace(v); v == "" {
+			continue
+		}
+		pfx, err := netip.ParsePrefix(v)
+		if a, aerr := netip.ParseAddr(v); aerr == nil { // a bare address
+			pfx, err = a.Prefix(a.BitLen())
+		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("TRUSTED_PROXIES: %w", err))
+			continue
+		}
+		c.TrustedProxies = append(c.TrustedProxies, pfx.Masked())
 	}
 	if c.LogFormat != "json" && c.LogFormat != "text" {
 		errs = append(errs, fmt.Errorf("LOG_FORMAT must be json or text"))

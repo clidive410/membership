@@ -15,12 +15,13 @@ import (
 
 // fakeMembers is an in-memory MemberStore for handler tests.
 type fakeMembers struct {
-	mu       sync.Mutex
-	members  map[int64]*members.Member
-	payments []members.Payment
-	audit    []string // "actor action member"
-	nextID   int64
-	pingErr  error
+	mu          sync.Mutex
+	members     map[int64]*members.Member
+	payments    []members.Payment
+	audit       []string // "actor action member"
+	nextID      int64
+	pingErr     error
+	panicOnPing bool
 }
 
 func newFakeMembers() *fakeMembers {
@@ -249,7 +250,12 @@ func (f *fakeMembers) ListAudit(context.Context, int64, int) ([]members.AuditEnt
 	return nil, nil
 }
 
-func (f *fakeMembers) Ping(context.Context) error { return f.pingErr }
+func (f *fakeMembers) Ping(context.Context) error {
+	if f.panicOnPing {
+		panic("invented failure")
+	}
+	return f.pingErr
+}
 
 // fakeAuth is an in-memory AuthStore.
 type fakeAuth struct {

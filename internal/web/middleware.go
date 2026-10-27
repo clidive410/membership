@@ -2,12 +2,18 @@ package web
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/gorilla/mux"
 
 	"github.com/clidive410/membership/internal/auth"
 )
@@ -21,7 +27,15 @@ const (
 
 type ctxKey int
 
-const principalKey ctxKey = iota
+const (
+	principalKey ctxKey = iota
+	requestIDKey
+	clientIPKey
+)
+
+func withPrincipal(ctx context.Context, p *auth.Principal) context.Context {
+	return context.WithValue(ctx, principalKey, p)
+}
 
 func principalFrom(ctx context.Context) *auth.Principal {
 	p, _ := ctx.Value(principalKey).(*auth.Principal)
@@ -37,7 +51,7 @@ func (s *Server) loadSession(next http.Handler) http.Handler {
 			if err != nil {
 				s.opt.Log.Error("looking up session", "err", err)
 			} else if p != nil {
-				r = r.WithContext(context.WithValue(r.Context(), principalKey, p))
+				r = r.WithContext(withPrincipal(r.Context(), p))
 			}
 		}
 		next.ServeHTTP(w, r)
@@ -115,25 +129,38 @@ func (s *Server) checkCSRF(next http.Handler) http.Handler {
 	})
 }
 
-// require wraps a handler with an authorization check.
-func (s *Server) require(perm auth.Permission, h http.HandlerFunc) http.Handler {
+// requireSignIn sends visitors without a session to the login page (GET)
+// or answers 401 (other methods).
+func (s *Server) requireSignIn(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p := principalFrom(r.Context())
-		if p == nil {
-			if r.Method == http.MethodGet {
+		if principalFrom(r.Context()) == nil {
+			if r.Method == http.MethodGet || r.Method == http.MethodHead {
 				http.Redirect(w, r, s.url("/login"), http.StatusSeeOther)
 				return
 			}
 			http.Error(w, "Please sign in.", http.StatusUnauthorized)
 			return
 		}
-		if !p.Can(perm) {
-			s.opt.Log.Warn("permission denied", "user_id", p.UserID, "perm", perm, "path", r.URL.Path)
-			s.renderError(w, r, http.StatusForbidden, "You do not have permission to do this.")
-			return
-		}
-		h(w, r)
+		next.ServeHTTP(w, r)
 	})
+}
+
+// requirePermission enforces the permission registered for the matched
+// route. A route missing from perms is refused, so forgetting to declare a
+// permission fails closed.
+func (s *Server) requirePermission(perms map[*mux.Route]auth.Permission) mux.MiddlewareFunc {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p := principalFrom(r.Context())
+			perm, ok := perms[mux.CurrentRoute(r)]
+			if !ok || !p.Can(perm) {
+				s.opt.Log.Warn("permission denied", "user_id", p.UserID, "perm", perm, "path", r.URL.Path)
+				s.renderError(w, r, http.StatusForbidden, "You do not have permission to do this.")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 func securityHeaders(next http.Handler) http.Handler {
@@ -174,7 +201,7 @@ func (s *Server) logRequests(next http.Handler) http.Handler {
 			level = slog.LevelError
 		}
 		s.opt.Log.Log(r.Context(), level, "request", "method", r.Method, "path", r.URL.Path,
-			"status", rec.status, "duration_ms", time.Since(start).Milliseconds())
+			"status", rec.status, "duration_ms", time.Since(start).Milliseconds(), "request_id", requestIDFrom(r.Context()))
 	})
 }
 
@@ -185,7 +212,7 @@ func (s *Server) recoverPanics(next http.Handler) http.Handler {
 				if v == http.ErrAbortHandler {
 					panic(v)
 				}
-				s.opt.Log.Error("panic", "value", v, "stack", string(debug.Stack()))
+				s.opt.Log.Error("panic", "value", v, "request_id", requestIDFrom(r.Context()), "stack", string(debug.Stack()))
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
 			}
 		}()
@@ -253,10 +280,84 @@ func (l *limiter) Reset(keys ...string) {
 	}
 }
 
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
+// requestID gives every request a random id, returned in X-Request-Id and
+// added to the request log, so that a user-reported error can be found.
+func requestID(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var b [8]byte
+		rand.Read(b[:])
+		id := hex.EncodeToString(b[:])
+		w.Header().Set("X-Request-Id", id)
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), requestIDKey, id)))
+	})
+}
+
+func requestIDFrom(ctx context.Context) string {
+	id, _ := ctx.Value(requestIDKey).(string)
+	return id
+}
+
+// timeout cancels the request context after d and answers 503 if the
+// handler has not finished by then (net/http's TimeoutHandler).
+func timeout(d time.Duration) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.TimeoutHandler(next, d, "The request took too long. Please try again.")
 	}
-	return host
+}
+
+// clientIP resolves the client address for rate limiting. Only when the TCP
+// peer is a trusted proxy is X-Forwarded-For consulted, walking it from the
+// right past further trusted hops; a client cannot spoof its address by
+// sending the header itself. (Like chi's ClientIPFromXFF; gorilla's
+// ProxyHeaders and chi's RealIP trust the header from anyone.)
+func (s *Server) clientIP(next http.Handler) http.Handler {
+	trusted := s.opt.TrustedProxies
+	isTrusted := func(a netip.Addr) bool {
+		for _, p := range trusted {
+			if p.Contains(a) {
+				return true
+			}
+		}
+		return false
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ip := peerAddr(r.RemoteAddr)
+		if ip.IsValid() && isTrusted(ip) {
+			hops := strings.Split(strings.Join(r.Header.Values("X-Forwarded-For"), ","), ",")
+			for i := len(hops) - 1; i >= 0; i-- {
+				a, err := netip.ParseAddr(strings.TrimSpace(hops[i]))
+				if err != nil {
+					break // garbage: keep the last good hop
+				}
+				ip = a.Unmap()
+				if !isTrusted(ip) {
+					break
+				}
+			}
+		}
+		if ip.IsValid() {
+			r = r.WithContext(context.WithValue(r.Context(), clientIPKey, ip.String()))
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func peerAddr(remoteAddr string) netip.Addr {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	a, err := netip.ParseAddr(host)
+	if err != nil {
+		return netip.Addr{}
+	}
+	return a.Unmap()
+}
+
+// clientIP returns the address resolved by the clientIP middleware.
+func clientIP(r *http.Request) string {
+	if ip, ok := r.Context().Value(clientIPKey).(string); ok {
+		return ip
+	}
+	return r.RemoteAddr
 }

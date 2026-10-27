@@ -16,9 +16,14 @@ Infrastructure lives in [`clidive410/infra`](https://github.com/clidive410/infra
   whether the visitor is a signed-in club member.
 - `migrate-legacy` imports the legacy `membership` tables idempotently.
 
-Standard library HTTP server (`net/http` pattern routing, `html/template`),
-`database/sql` with `go-sql-driver/mysql`, and `golang.org/x/crypto` (argon2)
-plus `golang.org/x/term` (password prompt). No JavaScript, no build step.
+`net/http` with [`gorilla/mux`](https://github.com/gorilla/mux) for routing
+(method matching, an `/admin` subrouter whose middleware enforces sign-in and
+each route's permission), `html/template`, `database/sql` with
+`go-sql-driver/mysql`, and `golang.org/x/crypto` (argon2) plus
+`golang.org/x/term` (password prompt). The UI uses the
+[Tabler](https://tabler.io) CSS kit, vendored and embedded in the binary
+(see `internal/web/static/vendor/README.md`). No JavaScript, no npm, no build
+step.
 
 ## Layout
 
@@ -91,9 +96,11 @@ Every variable can also be given as a file by setting `NAME_FILE` instead of
 | `LOG_FORMAT`     | `json`                   | `json` or `text` (log/slog). |
 | `MAIL_FROM`      | `membership@clidive.org` | Sender for future emails. Not used yet. |
 | `LEGACY_DB_DSN`  |                          | Default for `migrate-legacy -legacy-dsn`. |
+| `TRUSTED_PROXIES`| (none)                   | Comma-separated CIDRs (or addresses) of reverse proxies, e.g. the Swarm overlay network `10.0.0.0/8`. Only requests whose TCP peer is in this list have `X-Forwarded-For` read, from the right, to find the client address used for login rate limiting. Without it the TCP peer is the client. |
 
 Logs never include query strings or member data: only method, path, status,
-user ids and counts.
+user ids and counts. Every response carries an `X-Request-Id` that also
+appears in its log line. Handlers time out after 30 seconds (503).
 
 ## Users and roles
 

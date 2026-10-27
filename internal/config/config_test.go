@@ -49,3 +49,19 @@ func TestFileVariant(t *testing.T) {
 		t.Errorf("unexpected config: %+v", c)
 	}
 }
+
+func TestTrustedProxies(t *testing.T) {
+	base := map[string]string{"DB_DSN": "u:p@tcp(db:3306)/m", "SESSION_SECRET": "0123456789abcdef0123456789abcdef"}
+	base["TRUSTED_PROXIES"] = "10.0.0.0/8, 192.168.1.7 ,fd00::/8"
+	c, err := Load(env(base))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.TrustedProxies) != 3 || c.TrustedProxies[1].String() != "192.168.1.7/32" {
+		t.Errorf("TrustedProxies = %v", c.TrustedProxies)
+	}
+	base["TRUSTED_PROXIES"] = "not-an-ip"
+	if _, err := Load(env(base)); err == nil {
+		t.Error("expected an error for an invalid proxy")
+	}
+}

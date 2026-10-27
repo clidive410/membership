@@ -138,14 +138,15 @@ func serve(ctx context.Context) error {
 	memberStore, authStore := members.NewStore(conn), auth.NewStore(conn)
 
 	srv := web.New(web.Options{
-		Members:       memberStore,
-		Auth:          authStore,
-		Log:           log,
-		SessionSecret: cfg.SessionSecret,
-		BasePath:      cfg.BasePath(),
-		CookieSecure:  cfg.CookieSecure,
-		CookieDomain:  cfg.CookieDomain,
-		SessionTTL:    cfg.SessionTTL,
+		Members:        memberStore,
+		Auth:           authStore,
+		Log:            log,
+		SessionSecret:  cfg.SessionSecret,
+		BasePath:       cfg.BasePath(),
+		CookieSecure:   cfg.CookieSecure,
+		CookieDomain:   cfg.CookieDomain,
+		SessionTTL:     cfg.SessionTTL,
+		TrustedProxies: cfg.TrustedProxies,
 	})
 	httpSrv := &http.Server{
 		Addr:              cfg.ListenAddr,
