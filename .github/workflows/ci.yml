@@ -8,6 +8,13 @@ on:
 permissions:
   contents: read
 
+# Runs on main are serialised (never cancelled) so deploys reach infra in
+# commit order; a newer pending run replaces an older pending one. Pull
+# request runs cancel their predecessors.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -45,11 +52,19 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      IMAGE: ghcr.io/clidive410/membership
+      PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      short_sha: ${{ steps.vars.outputs.short_sha }}
     steps:
       - uses: actions/checkout@v4
+      - id: vars
+        run: echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: env.PUSH == 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -57,17 +72,87 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/clidive410/membership
+          images: ${{ env.IMAGE }}
           tags: |
-            type=sha,format=long
-            type=raw,value=latest,enable={{is_default_branch}}
-      - uses: docker/build-push-action@v6
+            type=raw,value=main
+            type=raw,value=sha-${{ steps.vars.outputs.short_sha }}
+      - id: build
+        uses: docker/build-push-action@v6
         with:
           context: .
-          # Build on every run; push only on main.
-          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          # Build on every run (pull requests too); push only on main.
+          push: ${{ env.PUSH == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: VERSION=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: image digest
+        if: env.PUSH == 'true'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          case "$DIGEST" in
+            sha256:*) echo "pushed $IMAGE@$DIGEST" >> "$GITHUB_STEP_SUMMARY" ;;
+            *) echo "::error::build-push-action returned no digest ('$DIGEST')"; exit 1 ;;
+          esac
+
+  # Hands the new digest to clidive410/infra, whose Terraform reads
+  # terraform/blog/membership-image.json and rolls the Swarm service.
+  deploy:
+    needs: image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions: {}
+    env:
+      INFRA_REPO: clidive410/infra
+      PIN_FILE: terraform/blog/membership-image.json
+      IMAGE_REF: ghcr.io/clidive410/membership@${{ needs.image.outputs.digest }}
+      DIGEST: ${{ needs.image.outputs.digest }}
+      SHORT_SHA: ${{ needs.image.outputs.short_sha }}
+    steps:
+      - name: update infra image pin
+        env:
+          # Fine-grained PAT with Contents: read and write on clidive410/infra.
+          INFRA_PUSH_TOKEN: ${{ secrets.INFRA_PUSH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${INFRA_PUSH_TOKEN:-}" ]; then
+            echo "::error::Repository secret INFRA_PUSH_TOKEN is not set. Create a fine-grained PAT with Contents: read and write on $INFRA_REPO and add it under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          case "$DIGEST" in
+            sha256:*) ;;
+            *) echo "::error::no image digest from the image job ('$DIGEST')"; exit 1 ;;
+          esac
+
+          # The token goes in a per-command header, never into .git/config.
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$INFRA_PUSH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          g() { git -c http.https://github.com/.extraheader="$auth" "$@"; }
+
+          g clone --quiet --depth 1 --branch main "https://github.com/$INFRA_REPO.git" infra
+          cd infra
+          for attempt in 1 2 3; do
+            if [ "$attempt" -gt 1 ]; then
+              g fetch --quiet --depth 1 origin main
+              git reset --quiet --hard origin/main
+            fi
+            current="$(jq -r '.image // empty' "$PIN_FILE" 2>/dev/null || true)"
+            if [ "$current" = "$IMAGE_REF" ]; then
+              echo "infra already pins $IMAGE_REF; nothing to commit"
+              exit 0
+            fi
+            mkdir -p "$(dirname "$PIN_FILE")"
+            printf '{\n  "image": "%s"\n}\n' "$IMAGE_REF" > "$PIN_FILE"
+            git add "$PIN_FILE"
+            git -c user.name=clidive-ci -c user.email=ci@clidive.org \
+              commit --quiet -m "membership: deploy $SHORT_SHA"
+            if g push --quiet origin HEAD:main; then
+              echo "pinned $IMAGE_REF in $INFRA_REPO ($PIN_FILE)" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "::warning::push to $INFRA_REPO main rejected (attempt $attempt); retrying on the new tip"
+          done
+          echo "::error::could not push to $INFRA_REPO main after 3 attempts"
+          exit 1
