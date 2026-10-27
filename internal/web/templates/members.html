@@ -17,7 +17,7 @@
 {{define "content"}}
 {{$d := .Data}}
 <div class="card list-card">
-  <div class="card-header">
+  <div class="card-header filters-bar">
     <form method="get" action="{{url "/admin/members"}}" role="search" aria-label="Filter members" class="list-filters w-100">
       <div class="list-filters-search">
         <label class="visually-hidden" for="q">Search</label>
@@ -55,10 +55,10 @@
         <tr{{if .Archived}} class="row-archived"{{end}}>
           <td class="text-end num cell-id">{{.ID}}</td>
           <td class="text-truncate"><a class="member-link" href="{{url "/admin/members/"}}{{.ID}}">{{.FirstName}}</a></td>
-          <td class="text-truncate"><a class="member-link" href="{{url "/admin/members/"}}{{.ID}}">{{.LastName}}</a>{{if .Archived}} <span class="badge bg-secondary-lt badge-status" data-status="archived">archived</span>{{end}}</td>
+          <td class="text-truncate"><a class="member-link" href="{{url "/admin/members/"}}{{.ID}}">{{.LastName}}</a>{{if .Archived}} <span class="badge badge-type type-archived" data-status="archived">archived</span>{{end}}</td>
           <td class="text-truncate cell-email">{{.Email1}}</td>
           <td>{{template "typebadge" .}}</td>
-          <td class="text-end text-nowrap num">{{ukdate .MembershipExpiry}}{{if .Expired $d.Now}} <span class="badge bg-red-lt badge-status" data-status="expired">expired</span>{{end}}</td>
+          <td class="text-end text-nowrap num">{{template "expiry" (dict "Date" .MembershipExpiry "Expired" (.Expired $d.Now))}}</td>
           <td class="text-end text-nowrap num">{{ukdate .BSACRenewalDue}}</td>
           <td class="text-end text-nowrap num">{{ukdate .LastPaid}}</td>
           <td class="text-secondary"><div class="cell-notes" {{with .Notes}}title="{{.}}"{{end}}>{{.Notes}}</div></td>

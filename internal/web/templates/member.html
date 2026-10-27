@@ -1,9 +1,9 @@
 {{define "pretitle"}}{{$m := .Data.M}}<div class="page-pretitle">{{if .Data.New}}Members{{else}}Member #{{$m.ID}}{{end}}</div>{{end}}
 {{define "heading"}}{{$d := .Data}}{{$m := $d.M}}{{if $d.New}}New member{{else}}{{$m.FullName}}
   <span class="heading-badges">
-  {{if $m.Archived}}<span class="badge bg-secondary-lt">archived</span>
-  {{else if $m.Expired $d.Now}}<span class="badge bg-red-lt">expired</span>
-  {{else}}<span class="badge bg-green-lt">current</span>{{end}}
+  {{if $m.Archived}}<span class="badge badge-type type-archived">archived</span>
+  {{else if $m.Expired $d.Now}}<span class="badge badge-type type-expired">expired</span>
+  {{else}}<span class="badge badge-type type-current">current</span>{{end}}
   {{template "typebadge" $m}}
   </span>{{end}}{{end}}
 {{define "actions"}}<a class="btn btn-outline-secondary" href="{{url "/admin/members"}}">{{icon "arrow-left"}} Back to members</a>{{end}}

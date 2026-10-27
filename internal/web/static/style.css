@@ -92,9 +92,9 @@
 }
 
 /* ---------- Page chrome ---------- */
-.page-header { padding-top: 1.5rem; padding-bottom: 1rem; }
-.page-title { font-size: 1.9rem; letter-spacing: .01em; line-height: 1.1; gap: .6rem; }
-.page-subtitle { margin-top: .15rem; color: var(--tblr-secondary); }
+.page-header { padding-top: 2rem; padding-bottom: 1.25rem; }
+.page-title { font-size: 2.5rem; letter-spacing: .01em; line-height: 1; gap: .6rem; }
+.page-subtitle { margin-top: .35rem; font-size: 1rem; color: var(--tblr-secondary); }
 .heading-badges { display: inline-flex; gap: .25rem; vertical-align: middle; font-family: var(--tblr-body-font-family); font-size: .75rem; text-transform: none; letter-spacing: 0; }
 .footer { padding: 1.25rem 0; background: transparent; border-top: 0; }
 
@@ -130,8 +130,10 @@ a:focus-visible, button:focus-visible, .btn:focus-visible, .form-control:focus-v
 .menu .dropdown-item small { display: block; color: var(--tblr-secondary); }
 
 /* ---------- Member list ---------- */
+.filters-bar { background: var(--tblr-bg-surface-secondary); padding: .875rem 1.25rem; }
 .list-filters { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
-.list-filters-search { flex: 1 1 18rem; min-width: 12rem; }
+.list-filters-search { flex: 2 1 22rem; min-width: 12rem; }
+.list-filters .form-control, .list-filters .form-select { background: var(--tblr-bg-surface); }
 .list-filters .form-select { flex: 0 1 15rem; width: auto; }
 .list-filters .btn-reset { --tblr-btn-color: var(--tblr-secondary); }
 
@@ -152,8 +154,9 @@ a:focus-visible, button:focus-visible, .btn:focus-visible, .form-control:focus-v
 .list-table-fixed .col-expiry { width: 11rem; }
 .list-table-fixed .col-date { width: 7rem; }
 .table-sticky thead th { position: sticky; top: 0; z-index: 2; }
+.list-table { --tblr-table-hover-bg: color-mix(in oklab, var(--clidive-yellow) 14%, var(--tblr-bg-surface)); --tblr-table-hover-color: var(--tblr-body-color); }
 .list-table thead th { font-size: .72rem; }
-.list-table td { padding-top: .6rem; padding-bottom: .6rem; }
+.list-table td { padding-top: .7rem; padding-bottom: .7rem; }
 .list-table .sort-link { display: inline-flex; align-items: center; gap: .15rem; color: inherit; text-decoration: none; white-space: nowrap; }
 .list-table .sort-link:hover { color: var(--tblr-body-color); }
 .sort-icon .icon { width: .9rem; height: .9rem; opacity: .4; }
@@ -169,7 +172,14 @@ th[aria-sort] .sort-link { color: var(--tblr-body-color); }
 .row-archived td, .row-archived .member-link { color: var(--tblr-secondary); }
 .row-archived .member-link { text-decoration: line-through; text-decoration-color: color-mix(in oklab, currentColor 50%, transparent); }
 .row-archived .member-link:hover { text-decoration: line-through underline; }
-.badge-status { font-size: .66rem; letter-spacing: .03em; }
+/* Membership types are information, not alarms: one quiet outlined badge
+   style, with only the states that need attention in colour. */
+.badge-type { background: transparent; color: var(--tblr-body-color); border: 1px solid var(--tblr-border-color); font-weight: 500; letter-spacing: .01em; }
+.badge-type.type-secondary, .badge-type.type-archived { color: var(--tblr-secondary); border-style: dashed; }
+.badge-type.type-current { color: var(--tblr-green); border-color: currentColor; }
+.badge-type.type-expired { color: var(--tblr-red); border-color: currentColor; }
+.date-expired { color: var(--tblr-red); font-weight: 500; }
+.date-expired::before { content: ""; display: inline-block; width: .4em; height: .4em; margin-inline-end: .45em; border-radius: 50%; background: currentColor; vertical-align: .1em; }
 
 /* Member form: a disabled (read-only) section looks muted. */
 fieldset[disabled] .card-body { background: var(--tblr-bg-surface-secondary, #f9fafb); }
@@ -188,4 +198,4 @@ fieldset[disabled] .card-body { background: var(--tblr-bg-surface-secondary, #f9
 }
 
 /* Wide tables get the room; forms stay readable. */
-.page-wrapper [class^=container] { max-width: 100rem; }
+.page-wrapper [class^=container] { max-width: 96rem; }

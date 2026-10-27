@@ -36,7 +36,7 @@
         <td><input class="form-check-input m-0 align-middle" type="checkbox" name="member" value="{{.ID}}" id="m{{.ID}}" {{if $d.Selected}}checked{{end}}><label for="m{{.ID}}" class="visually-hidden">Select {{.FullName}}</label></td>
         <td><a class="member-link" href="{{url "/admin/members/"}}{{.ID}}">{{.FirstName}}</a></td>
         <td><a class="member-link" href="{{url "/admin/members/"}}{{.ID}}">{{.LastName}}</a></td>
-        <td class="text-end text-nowrap num">{{ukdate .MembershipExpiry}}{{if .Expired $d.Now}} <span class="badge bg-red-lt badge-status" data-status="expired">expired</span>{{end}}</td>
+        <td class="text-end text-nowrap num">{{template "expiry" (dict "Date" .MembershipExpiry "Expired" (.Expired $d.Now))}}</td>
         <td class="text-end text-nowrap num">{{ukdate .LastPaid}}</td>
         <td class="text-secondary"><div class="cell-notes" {{with .Notes}}title="{{.}}"{{end}}>{{.Notes}}</div></td>
       </tr>
