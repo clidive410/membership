@@ -12,6 +12,7 @@ package integration
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -427,5 +428,47 @@ func TestLegacyImportRepairsEncoding(t *testing.T) {
 	}
 	if res := f.importOnce(t); res.Updated != 0 || res.Unchanged != 4 {
 		t.Errorf("re-import after repair not idempotent: %+v", res)
+	}
+}
+
+func TestMigrationLock(t *testing.T) {
+	f := setup(t)
+	log := slog.New(slog.DiscardHandler)
+
+	// Another session holds the lock: Migrate gives up after the timeout.
+	holder, err := f.server.Conn(f.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Close()
+	var got int
+	if err := holder.QueryRowContext(f.ctx, "SELECT GET_LOCK(?, 5)", db.MigrationLock).Scan(&got); err != nil || got != 1 {
+		t.Fatalf("taking lock: %v (%d)", err, got)
+	}
+	start := time.Now()
+	err = db.MigrateWithTimeout(f.ctx, f.app, time.Second, log)
+	if !errors.Is(err, db.ErrLockTimeout) {
+		t.Fatalf("err = %v, want ErrLockTimeout", err)
+	}
+	if d := time.Since(start); d < 900*time.Millisecond || d > 10*time.Second {
+		t.Errorf("waited %s", d)
+	}
+	if _, err := holder.ExecContext(f.ctx, "SELECT RELEASE_LOCK(?)", db.MigrationLock); err != nil {
+		t.Fatal(err)
+	}
+
+	// Concurrent starts both succeed, and the lock is free afterwards.
+	errc := make(chan error, 3)
+	for range 3 {
+		go func() { errc <- db.Migrate(f.ctx, f.app, log) }()
+	}
+	for range 3 {
+		if err := <-errc; err != nil {
+			t.Errorf("concurrent migrate: %v", err)
+		}
+	}
+	var free int
+	if err := f.server.QueryRowContext(f.ctx, "SELECT IS_FREE_LOCK(?)", db.MigrationLock).Scan(&free); err != nil || free != 1 {
+		t.Errorf("lock not released: %v (%d)", err, free)
 	}
 }

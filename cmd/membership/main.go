@@ -1,6 +1,6 @@
 // Command membership runs the Clidive membership portal and its admin tasks.
 //
-//	membership [serve]                 run the HTTP server (default)
+//	membership [serve] [--migrate]     run the HTTP server (default)
 //	membership migrate                 apply database migrations
 //	membership migrate-legacy          import from the legacy PHP database
 //	membership user <subcommand>       manage login users and roles
@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -46,11 +47,12 @@ func usage(w io.Writer) {
 	fmt.Fprint(w, `Usage: membership <command> [flags]
 
 Commands:
-  serve            Run the HTTP server (default)
+  serve            Run the HTTP server (default); --migrate (or MIGRATE_ON_START=true)
+                   applies pending migrations first, under a MariaDB named lock
   migrate          Apply database migrations and exit
   migrate-legacy   Import members from the legacy database (-legacy-dsn, -dry-run)
   user             Manage users: set-password, grant, revoke, link, disable, enable, list
-  healthcheck      Exit 0 if the local server's /healthz answers 200
+  healthcheck      Exit 0 if the local server's /healthz answers 200 (HEALTHCHECK_URL overrides)
   seed-dev         Insert invented members into an EMPTY database (-n 40, -seed 1)
   version          Print the version
 
@@ -65,7 +67,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	}
 	switch cmd {
 	case "serve":
-		return serve(ctx)
+		return serve(ctx, args)
 	case "migrate":
 		return migrateCmd(ctx)
 	case "migrate-legacy":
@@ -73,7 +75,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	case "user":
 		return userCmd(ctx, args, stdin, stdout)
 	case "healthcheck":
-		return healthcheck()
+		return healthcheck(ctx, os.Getenv)
 	case "seed-dev":
 		return seedDev(ctx, args, stdout)
 	case "version":
@@ -119,10 +121,18 @@ func openAppDB(ctx context.Context, log *slog.Logger) (*members.Store, *auth.Sto
 	return members.NewStore(conn), auth.NewStore(conn), func() { conn.Close() }, nil
 }
 
-func serve(ctx context.Context) error {
+func serve(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
+	migrate := fs.Bool("migrate", false, "apply pending migrations before listening (also MIGRATE_ON_START=true)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 	cfg, err := config.Load(os.Getenv)
 	if err != nil {
 		return err
+	}
+	if *migrate {
+		cfg.MigrateOnStart = true
 	}
 	log := newLogger(cfg.LogLevel, cfg.LogFormat)
 	slog.SetDefault(log)
@@ -135,8 +145,14 @@ func serve(ctx context.Context) error {
 		return err
 	}
 	defer conn.Close()
-	if cfg.AutoMigrate {
+	if cfg.MigrateOnStart {
 		if err := db.Migrate(ctx, conn, log); err != nil {
+			if errors.Is(err, db.ErrLockTimeout) {
+				log.Error("could not obtain the migration lock; another instance is probably still migrating. Exiting without serving.",
+					"lock", db.MigrationLock, "timeout", db.DefaultLockTimeout.String())
+			} else {
+				log.Error("migrations failed; exiting without serving", "err", err)
+			}
 			return err
 		}
 	}
@@ -373,30 +389,53 @@ func seedDev(ctx context.Context, args []string, out io.Writer) error {
 	return nil
 }
 
-func healthcheck() error {
-	addr := os.Getenv("LISTEN_ADDR")
+// healthcheckURL is HEALTHCHECK_URL, or /healthz on the loopback address of
+// LISTEN_ADDR under the BASE_URL path prefix.
+func healthcheckURL(getenv config.Getenv) (string, error) {
+	if u := getenv("HEALTHCHECK_URL"); u != "" {
+		return u, nil
+	}
+	addr := getenv("LISTEN_ADDR")
 	if addr == "" {
 		addr = ":8080"
 	}
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
-		return err
+		return "", fmt.Errorf("LISTEN_ADDR: %w", err)
 	}
 	if host == "" || host == "0.0.0.0" || host == "::" {
 		host = "127.0.0.1"
 	}
 	base := ""
-	if c, err := config.Load(os.Getenv); err == nil {
-		base = c.BasePath()
+	if b := getenv("BASE_URL"); b != "" {
+		if u, err := url.Parse(b); err == nil {
+			base = strings.TrimRight(u.Path, "/")
+		}
 	}
-	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get("http://" + net.JoinHostPort(host, port) + base + "/healthz")
+	return "http://" + net.JoinHostPort(host, port) + base + "/healthz", nil
+}
+
+// healthcheck is the container HEALTHCHECK: the image has no shell or curl,
+// so the binary probes itself. A non-nil error exits 1.
+func healthcheck(ctx context.Context, getenv config.Getenv) error {
+	u, err := healthcheckURL(getenv)
 	if err != nil {
 		return err
 	}
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("healthcheck: %w", err)
+	}
 	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("healthz returned %d", resp.StatusCode)
+		return fmt.Errorf("healthcheck: %s returned %d", u, resp.StatusCode)
 	}
 	return nil
 }

@@ -4,6 +4,9 @@
   </a>
 </li>{{end}}
 
+{{/* wordmark: the club logo drawn in CSS (yellow block, condensed black type). */}}
+{{define "wordmark"}}<span class="wordmark{{if not .Shell}} wordmark-lg{{end}}"><span class="wordmark-name">Clidive</span><span class="wordmark-bsac"><span>BSAC</span><span>410</span></span></span>{{end}}
+
 {{define "flash"}}{{with .Flash}}<div class="alert alert-success" role="status">
   <div class="alert-icon">{{icon "circle-check"}}</div><div>{{.}}</div>
 </div>{{end}}{{end}}
@@ -35,7 +38,10 @@
 </th>{{end}}
 
 {{/* typebadge: a coloured badge for a member's Clidive type. */}}
-{{define "typebadge"}}{{if .TypeName}}<span class="badge bg-{{typeColor .TypeID}}-lt">{{.TypeName}}</span>{{else}}<span class="text-secondary">—</span>{{end}}{{end}}
+{{define "typebadge"}}{{if .TypeName}}<span class="badge badge-type type-{{typeColor .TypeID}}">{{.TypeName}}</span>{{else}}<span class="text-secondary">—</span>{{end}}{{end}}
+
+{{/* expiry: a member's Clidive expiry date; past dates are marked. Keys: Date, Expired. */}}
+{{define "expiry"}}{{if .Expired}}<span class="date-expired" data-status="expired" title="Clidive membership expired">{{ukdate .Date}}<span class="visually-hidden"> (expired)</span></span>{{else}}{{ukdate .Date}}{{end}}{{end}}
 
 {{define "pagination"}}{{if gt .Pages 1}}<nav aria-label="Pages">
   <ul class="pagination m-0 ms-auto">

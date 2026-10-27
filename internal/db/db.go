@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -112,48 +113,133 @@ func SplitStatements(src string) []string {
 	return stmts
 }
 
-// Migrate applies all pending migrations. MariaDB DDL is not transactional,
-// so each migration is recorded only after all its statements succeeded.
-func Migrate(ctx context.Context, db *sql.DB, log *slog.Logger) error {
-	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
-		version VARCHAR(100) NOT NULL PRIMARY KEY,
-		applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`); err != nil {
+// MigrationLock is the MariaDB named lock that serialises migration runs,
+// so that replicas starting together (for example the old and new task of a
+// start-first rolling update) never apply the same migration twice.
+const MigrationLock = "membership_migrate"
+
+// DefaultLockTimeout is how long Migrate waits for MigrationLock.
+const DefaultLockTimeout = 60 * time.Second
+
+// ErrLockTimeout is returned when the migration lock could not be obtained
+// within the timeout, usually because another instance is still migrating.
+var ErrLockTimeout = errors.New("timed out waiting for the migration lock")
+
+// migrator is what runMigrations needs from the database. sqlMigrator
+// implements it on a single connection (named locks belong to a session);
+// tests use a fake.
+type migrator interface {
+	// AcquireLock waits up to timeout for the named lock and reports whether
+	// it was obtained.
+	AcquireLock(ctx context.Context, name string, timeout time.Duration) (bool, error)
+	ReleaseLock(ctx context.Context, name string) error
+	EnsureTable(ctx context.Context) error
+	Applied(ctx context.Context, version string) (bool, error)
+	Apply(ctx context.Context, m migration) error
+}
+
+// runMigrations takes the lock, applies every migration not yet recorded, in
+// order, and releases the lock whatever happens.
+func runMigrations(ctx context.Context, m migrator, ms []migration, timeout time.Duration, log *slog.Logger) (err error) {
+	ok, err := m.AcquireLock(ctx, MigrationLock, timeout)
+	if err != nil {
+		return fmt.Errorf("acquiring migration lock: %w", err)
+	}
+	if !ok {
+		return fmt.Errorf("%w %q after %s", ErrLockTimeout, MigrationLock, timeout)
+	}
+	defer func() {
+		if rerr := m.ReleaseLock(context.WithoutCancel(ctx), MigrationLock); rerr != nil {
+			log.Warn("releasing migration lock", "err", rerr)
+		}
+	}()
+
+	if err := m.EnsureTable(ctx); err != nil {
 		return fmt.Errorf("creating schema_migrations: %w", err)
 	}
-	// Serialise concurrent starts (e.g. two replicas) with a named lock.
+	applied := 0
+	for _, mig := range ms {
+		done, err := m.Applied(ctx, mig.version)
+		if err != nil {
+			return fmt.Errorf("checking migration %s: %w", mig.version, err)
+		}
+		if done {
+			continue
+		}
+		log.Info("applying migration", "version", mig.version)
+		if err := m.Apply(ctx, mig); err != nil {
+			return err
+		}
+		applied++
+	}
+	log.Info("migrations up to date", "applied", applied, "total", len(ms))
+	return nil
+}
+
+// Migrate applies all pending embedded migrations under the MigrationLock,
+// waiting up to DefaultLockTimeout for it.
+func Migrate(ctx context.Context, db *sql.DB, log *slog.Logger) error {
+	return MigrateWithTimeout(ctx, db, DefaultLockTimeout, log)
+}
+
+// MigrateWithTimeout is Migrate with an explicit lock timeout (whole seconds).
+// MariaDB DDL is not transactional, so each migration is recorded only after
+// all its statements succeeded.
+func MigrateWithTimeout(ctx context.Context, db *sql.DB, timeout time.Duration, log *slog.Logger) error {
+	ms, err := loadMigrations()
+	if err != nil {
+		return err
+	}
 	conn, err := db.Conn(ctx)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
-	var got sql.NullInt64
-	if err := conn.QueryRowContext(ctx, "SELECT GET_LOCK('membership_migrate', 60)").Scan(&got); err != nil || got.Int64 != 1 {
-		return fmt.Errorf("acquiring migration lock: %v", err)
-	}
-	defer conn.ExecContext(context.WithoutCancel(ctx), "SELECT RELEASE_LOCK('membership_migrate')")
+	return runMigrations(ctx, sqlMigrator{conn}, ms, timeout, log)
+}
 
-	ms, err := loadMigrations()
-	if err != nil {
-		return err
+type sqlMigrator struct{ conn *sql.Conn }
+
+func (s sqlMigrator) AcquireLock(ctx context.Context, name string, timeout time.Duration) (bool, error) {
+	// GET_LOCK returns 1 when obtained, 0 on timeout and NULL on error.
+	var got sql.NullInt64
+	secs := int64(timeout / time.Second)
+	if err := s.conn.QueryRowContext(ctx, "SELECT GET_LOCK(?, ?)", name, secs).Scan(&got); err != nil {
+		return false, err
 	}
-	for _, m := range ms {
-		var n int
-		if err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations WHERE version = ?", m.version).Scan(&n); err != nil {
-			return err
+	if !got.Valid {
+		return false, errors.New("GET_LOCK returned NULL")
+	}
+	return got.Int64 == 1, nil
+}
+
+func (s sqlMigrator) ReleaseLock(ctx context.Context, name string) error {
+	_, err := s.conn.ExecContext(ctx, "SELECT RELEASE_LOCK(?)", name)
+	return err
+}
+
+func (s sqlMigrator) EnsureTable(ctx context.Context) error {
+	_, err := s.conn.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
+		version VARCHAR(100) NOT NULL PRIMARY KEY,
+		applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`)
+	return err
+}
+
+func (s sqlMigrator) Applied(ctx context.Context, version string) (bool, error) {
+	var n int
+	err := s.conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations WHERE version = ?", version).Scan(&n)
+	return n > 0, err
+}
+
+func (s sqlMigrator) Apply(ctx context.Context, m migration) error {
+	for _, stmt := range SplitStatements(m.sql) {
+		if _, err := s.conn.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("migration %s: %w", m.version, err)
 		}
-		if n > 0 {
-			continue
-		}
-		log.Info("applying migration", "version", m.version)
-		for _, stmt := range SplitStatements(m.sql) {
-			if _, err := conn.ExecContext(ctx, stmt); err != nil {
-				return fmt.Errorf("migration %s: %w", m.version, err)
-			}
-		}
-		if _, err := conn.ExecContext(ctx, "INSERT INTO schema_migrations (version) VALUES (?)", m.version); err != nil {
-			return err
-		}
+	}
+	if _, err := s.conn.ExecContext(ctx, "INSERT INTO schema_migrations (version) VALUES (?)", m.version); err != nil {
+		return fmt.Errorf("recording migration %s: %w", m.version, err)
 	}
 	return nil
 }

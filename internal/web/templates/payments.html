@@ -6,7 +6,7 @@
 <form method="post" action="{{url "/admin/payments"}}">
 <input type="hidden" name="csrf_token" value="{{.CSRF}}">
 <input type="hidden" name="type" value="{{$d.TypeID}}">
-<div class="card">
+<div class="card list-card">
   <div class="card-header">
     <nav aria-label="Membership type">
       <ul class="nav nav-tabs card-header-tabs">
@@ -24,8 +24,8 @@
       <div class="col-sm-4 col-lg-4"><label class="form-label" for="Note">Note</label><input class="form-control" id="Note" name="Note" maxlength="255"></div>
     </div>
   </div>
-  <div class="table-responsive table-scroll">
-    <table class="table table-vcenter table-hover card-table table-sticky">
+  <div class="table-wrap">
+    <table class="table table-vcenter table-hover card-table table-sticky list-table">
       <caption class="visually-hidden">Current members of this type. Ticked members receive the payment.</caption>
       <thead><tr><th scope="col" class="w-1"><span class="visually-hidden">Select</span></th>
         {{range $d.Headers}}{{template "sorthead" .}}{{end}}
@@ -34,9 +34,9 @@
       {{range $d.Members}}
       <tr>
         <td><input class="form-check-input m-0 align-middle" type="checkbox" name="member" value="{{.ID}}" id="m{{.ID}}" {{if $d.Selected}}checked{{end}}><label for="m{{.ID}}" class="visually-hidden">Select {{.FullName}}</label></td>
-        <td><a href="{{url "/admin/members/"}}{{.ID}}">{{.FirstName}}</a></td>
-        <td><a href="{{url "/admin/members/"}}{{.ID}}">{{.LastName}}</a></td>
-        <td class="text-end text-nowrap num">{{ukdate .MembershipExpiry}}{{if .Expired $d.Now}} <span class="badge bg-red-lt" data-status="expired">expired</span>{{end}}</td>
+        <td><a class="member-link" href="{{url "/admin/members/"}}{{.ID}}">{{.FirstName}}</a></td>
+        <td><a class="member-link" href="{{url "/admin/members/"}}{{.ID}}">{{.LastName}}</a></td>
+        <td class="text-end text-nowrap num">{{template "expiry" (dict "Date" .MembershipExpiry "Expired" (.Expired $d.Now))}}</td>
         <td class="text-end text-nowrap num">{{ukdate .LastPaid}}</td>
         <td class="text-secondary"><div class="cell-notes" {{with .Notes}}title="{{.}}"{{end}}>{{.Notes}}</div></td>
       </tr>

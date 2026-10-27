@@ -2,7 +2,9 @@ package web
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -29,6 +31,42 @@ var typeColors = map[int64]string{
 
 // icons holds the vendored Tabler icons, ready to inline (see icon).
 var icons = loadIcons()
+
+// assetVersions maps embedded static paths (e.g. "/static/style.css") to a
+// short content hash, so that links can carry ?v= and the day-long
+// Cache-Control on /static/ never serves a stale file after a deploy.
+var assetVersions = loadAssetVersions()
+
+func loadAssetVersions() map[string]string {
+	out := map[string]string{}
+	err := fs.WalkDir(staticFS, "static", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := fs.ReadFile(staticFS, p)
+		if err != nil {
+			return err
+		}
+		sum := sha256.Sum256(b)
+		out["/"+p] = hex.EncodeToString(sum[:4])
+		return nil
+	})
+	if err != nil {
+		panic(err)
+	}
+	return out
+}
+
+// asset returns the in-app URL of an embedded static file with a content
+// hash query string. It panics on an unknown path so that a typo fails the
+// template tests rather than production.
+func asset(base, p string) string {
+	v, ok := assetVersions[p]
+	if !ok {
+		panic("unknown static asset " + p)
+	}
+	return base + p + "?v=" + v
+}
 
 func loadIcons() map[string]template.HTML {
 	const dir = "static/vendor/tabler-icons/outline"
@@ -78,8 +116,9 @@ func dict(kv ...any) (map[string]any, error) {
 
 func mustParseTemplates(base string) map[string]*pageTemplate {
 	funcs := template.FuncMap{
-		"url":  func(p string) string { return base + p },
-		"date": members.FormatDate,
+		"url":   func(p string) string { return base + p },
+		"asset": func(p string) string { return asset(base, p) },
+		"date":  members.FormatDate,
 		"dateTime": func(t sql.NullTime) string {
 			if !t.Valid {
 				return ""
