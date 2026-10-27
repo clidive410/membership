@@ -1,55 +1,185 @@
-/* Clidive overrides on top of Tabler (vendor/tabler/css/tabler.min.css).
-   Keep this file small: prefer Tabler classes in the templates. */
+/* Clidive theme on top of Tabler (vendor/tabler/css/tabler.min.css).
+   Keep this file small: prefer Tabler classes in the templates.
 
-:root {
-  --clidive-navy: #0d2b4a;
+   Brand, taken from clidive.org: a black header, the logo's yellow (#fff200)
+   with black type, Open Sans Condensed Bold for headings and nav, link blue
+   #0066cc and a light grey page background. Yellow is an accent (wordmark,
+   active nav item, primary buttons, focus ring); near-black is the working
+   "primary" so that checkboxes, pagination and tabs keep their contrast. */
+
+@font-face {
+  font-family: "Open Sans Condensed";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("vendor/open-sans-condensed/open-sans-condensed-latin-700-normal.woff2") format("woff2");
 }
 
-/* Sidebar: club navy instead of Tabler's default dark. */
-.sidebar { background: var(--clidive-navy); }
-.brand { gap: .5rem; font-weight: 700; }
-.brand .icon, .login-brand .icon { width: 1.75rem; height: 1.75rem; stroke-width: 1.5; }
-.brand-sub { font-weight: 400; opacity: .75; }
-.login-brand { display: inline-flex; align-items: center; gap: .5rem; font-size: 1.5rem; font-weight: 700; color: var(--clidive-navy); }
+:root {
+  --clidive-yellow: #fff200;
+  --clidive-yellow-deep: #d9ce00;   /* edges and hover on yellow surfaces */
+  --clidive-black: #000;
+  --clidive-ink: #111;
+  --clidive-condensed: "Open Sans Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+
+  --tblr-primary: var(--clidive-ink);
+  --tblr-primary-rgb: 17, 17, 17;
+  --tblr-primary-fg: #fff;
+  --tblr-primary-darken: var(--clidive-black);
+  --tblr-link-color: #0066cc;
+  --tblr-link-color-rgb: 0, 102, 204;
+  --tblr-link-hover-color: #004d99;
+  --tblr-body-bg: #f0f1f2;
+  --tblr-sidebar-width: 15rem;
+}
+
+/* Headings and the wordmark use the club's condensed face. */
+.condensed, .page-title, .wordmark { font-family: var(--clidive-condensed); font-weight: 700; text-transform: uppercase; }
+
+/* ---------- Sidebar ---------- */
+.sidebar { background: var(--clidive-black); box-shadow: none; }
+.sidebar .navbar-brand { padding: 1rem 1rem .5rem; }
+.wordmark {
+  display: inline-flex; align-items: center; gap: .4rem;
+  padding: .3rem .55rem .35rem; background: var(--clidive-yellow); color: var(--clidive-black);
+  line-height: 1; text-decoration: none; border-radius: 2px;
+}
+.wordmark:hover, .wordmark:focus { color: var(--clidive-black); text-decoration: none; }
+.wordmark-name { font-size: 1.75rem; letter-spacing: -.01em; }
+.wordmark-bsac { display: flex; flex-direction: column; font-size: .68rem; line-height: .95; letter-spacing: .02em; }
+.wordmark-lg .wordmark-name { font-size: 2.5rem; }
+.wordmark-lg .wordmark-bsac { font-size: .95rem; }
+.brand-sub { display: block; padding: 0 1rem .75rem; font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; color: rgba(255,255,255,.55); }
+
+.sidebar .navbar-nav .nav-link {
+  font-family: var(--clidive-condensed); font-weight: 700; font-size: 1.05rem; letter-spacing: .04em; text-transform: uppercase;
+  color: rgba(255,255,255,.78); border-inline-start: 3px solid transparent;
+}
+.sidebar .navbar-nav .nav-link:hover { color: #fff; background: rgba(255,255,255,.06); }
+.sidebar .navbar-nav .nav-item.active > .nav-link {
+  color: var(--clidive-yellow); border-inline-start-color: var(--clidive-yellow); background: rgba(255,255,255,.08);
+}
+.sidebar .nav-link-icon { color: inherit; }
+
+.sidebar-search { padding: .75rem 1rem 0; }
+.sidebar-search .form-control {
+  background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.15); color: #fff;
+}
+.sidebar-search .form-control::placeholder { color: rgba(255,255,255,.5); }
+.sidebar-search .form-control:focus { background: rgba(255,255,255,.12); border-color: var(--clidive-yellow); }
+.sidebar-search .input-icon-addon { color: rgba(255,255,255,.6); }
+
+.sidebar-user { margin-top: auto; border-top: 1px solid rgba(255,255,255,.12); color: #fff; }
 .sidebar-user-text { min-width: 0; }
+.sidebar-user .text-secondary { color: rgba(255,255,255,.55) !important; }
+.sidebar-user .avatar { background: var(--clidive-yellow); color: var(--clidive-black); font-weight: 700; }
+.sidebar-user .btn { --tblr-btn-color: rgba(255,255,255,.85); --tblr-btn-border-color: rgba(255,255,255,.25); --tblr-btn-hover-color: #fff; --tblr-btn-hover-bg: rgba(255,255,255,.1); --tblr-btn-hover-border-color: rgba(255,255,255,.4); }
 .sidebar-user .btn .icon { margin-inline-end: .25rem; }
 
 /* No JavaScript: below the lg breakpoint the sidebar becomes a compact top
    bar with the links in a wrapping row, instead of a collapsible menu. */
 @media (max-width: 991.98px) {
   .sidebar > .container-fluid { flex-wrap: wrap; }
+  .sidebar .navbar-brand { padding: .6rem 1rem; }
+  .brand-sub { display: none; }
   .sidebar .navbar-collapse { flex-basis: 100%; }
-  .sidebar .navbar-nav { flex-direction: row; flex-wrap: wrap; gap: .25rem; }
-  .sidebar .navbar-nav .nav-link { padding: .4rem .6rem; }
-  .sidebar-user { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; border-top: 1px solid rgba(255,255,255,.1); }
+  .sidebar .navbar-nav { flex-direction: row; flex-wrap: wrap; gap: .25rem; padding: 0 .5rem .5rem; }
+  .sidebar .navbar-nav .nav-link { padding: .4rem .6rem; border-inline-start: 0; border-bottom: 3px solid transparent; }
+  .sidebar .navbar-nav .nav-item.active > .nav-link { border-bottom-color: var(--clidive-yellow); background: none; }
+  .sidebar-search { padding: 0 1rem .5rem; }
+  .sidebar-user { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; margin-top: 0; }
   .sidebar-user form { padding: .5rem 1rem !important; }
 }
 
-.topbar { min-height: 3.5rem; border-bottom: var(--tblr-border-width) solid var(--tblr-border-color); background: var(--tblr-bg-surface); }
-.topbar-search { width: 100%; max-width: 22rem; }
+/* ---------- Page chrome ---------- */
+.page-header { padding-top: 2rem; padding-bottom: 1.25rem; }
+.page-title { font-size: 2.5rem; letter-spacing: .01em; line-height: 1; gap: .6rem; }
+.page-subtitle { margin-top: .35rem; font-size: 1rem; color: var(--tblr-secondary); }
+.heading-badges { display: inline-flex; gap: .25rem; vertical-align: middle; font-family: var(--tblr-body-font-family); font-size: .75rem; text-transform: none; letter-spacing: 0; }
+.footer { padding: 1.25rem 0; background: transparent; border-top: 0; }
 
-/* Visible keyboard focus everywhere (Tabler's focus ring is subtle). */
-a:focus-visible, button:focus-visible, .btn:focus-visible, .form-control:focus-visible,
-.form-select:focus-visible, .form-check-input:focus-visible, summary:focus-visible, .page-link:focus-visible {
-  outline: 3px solid #f0b400; outline-offset: 2px;
+/* Primary buttons wear the logo colours; everything else keeps Tabler's defaults. */
+.btn-primary {
+  --tblr-btn-color: var(--clidive-black); --tblr-btn-bg: var(--clidive-yellow); --tblr-btn-border-color: var(--clidive-yellow-deep);
+  --tblr-btn-hover-color: var(--clidive-black); --tblr-btn-hover-bg: #ffe600; --tblr-btn-hover-border-color: var(--clidive-black);
+  --tblr-btn-active-color: var(--clidive-black); --tblr-btn-active-bg: #e6da00; --tblr-btn-active-border-color: var(--clidive-black);
+  --tblr-btn-disabled-color: var(--clidive-black); --tblr-btn-disabled-bg: var(--clidive-yellow); --tblr-btn-disabled-border-color: var(--clidive-yellow-deep);
+  background-color: var(--tblr-btn-bg); border-color: var(--tblr-btn-border-color); color: var(--tblr-btn-color); font-weight: 600;
 }
-.skip-link { position: absolute; left: -999px; top: .5rem; z-index: 2000; padding: .5rem 1rem; background: #fff; border-radius: 4px; }
+.btn-primary:hover { background-color: var(--tblr-btn-hover-bg); border-color: var(--tblr-btn-hover-border-color); color: var(--tblr-btn-hover-color); }
+.btn-primary:active, .btn-primary.active { background-color: var(--tblr-btn-active-bg); border-color: var(--tblr-btn-active-border-color); color: var(--tblr-btn-active-color); }
+
+/* Visible keyboard focus everywhere: a black ring with a yellow halo reads on
+   both the white cards and the black sidebar. */
+a:focus-visible, button:focus-visible, .btn:focus-visible, .form-control:focus-visible, .form-select:focus-visible,
+.form-check-input:focus-visible, summary:focus-visible, .page-link:focus-visible, .dropdown-item:focus-visible {
+  outline: 2px solid var(--clidive-black); outline-offset: 1px; box-shadow: 0 0 0 5px var(--clidive-yellow);
+}
+.form-control:focus, .form-select:focus { border-color: var(--clidive-ink); box-shadow: none; }
+.skip-link { position: absolute; left: -999px; top: .5rem; z-index: 2000; padding: .5rem 1rem; background: var(--clidive-yellow); color: var(--clidive-black); border-radius: 4px; font-weight: 600; }
 .skip-link:focus { left: .5rem; }
 
-.heading-badges { display: inline-flex; gap: .25rem; vertical-align: middle; font-size: .75rem; }
+/* A dropdown without JavaScript: <details> wraps the trigger and the menu. */
+.menu { position: relative; display: inline-block; }
+.menu > summary { list-style: none; cursor: pointer; }
+.menu > summary::-webkit-details-marker { display: none; }
+.menu > summary .caret { display: inline-block; width: .45em; height: .45em; margin-inline-start: .4rem; border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: translateY(-.15em) rotate(45deg); }
+.menu[open] > summary { background: var(--tblr-bg-surface-secondary); }
+.menu > .dropdown-menu { display: block; position: absolute; inset-inline-end: 0; top: calc(100% + .25rem); min-width: 15rem; }
+.menu .dropdown-item { white-space: normal; }
+.menu .dropdown-item small { display: block; color: var(--tblr-secondary); }
 
-/* Tables: header stays visible while the table body scrolls. */
-.table-scroll { max-height: calc(100vh - 17rem); min-height: 12rem; overflow: auto; }
-.table-sticky thead th { position: sticky; top: 0; z-index: 2; background: var(--tblr-bg-surface-tertiary, #f6f8fb); }
-.sort-link { display: inline-flex; align-items: center; gap: .15rem; color: inherit; text-decoration: none; white-space: nowrap; }
-.sort-link:hover { color: var(--tblr-primary); }
-th.text-end .sort-link { flex-direction: row; }
-.sort-icon .icon { width: .9rem; height: .9rem; opacity: .45; }
-th[aria-sort] .sort-icon .icon { opacity: 1; color: var(--tblr-primary); }
+/* ---------- Member list ---------- */
+.filters-bar { background: var(--tblr-bg-surface-secondary); padding: .875rem 1.25rem; }
+.list-filters { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.list-filters-search { flex: 2 1 22rem; min-width: 12rem; }
+.list-filters .form-control, .list-filters .form-select { background: var(--tblr-bg-surface); }
+.list-filters .form-select { flex: 0 1 15rem; width: auto; }
+.list-filters .btn-reset { --tblr-btn-color: var(--tblr-secondary); }
+
+/* The table scrolls with the page; the header row sticks below the viewport
+   top. Narrow screens get a horizontal scroll instead (sticky then stops,
+   which is the lesser evil). */
+.list-card { overflow: visible; }
+.table-wrap { overflow-x: auto; }
+@media (min-width: 1400px) {
+  .table-wrap { overflow: visible; }
+  .list-table-fixed { table-layout: fixed; width: 100%; }
+}
+.list-table-fixed .col-id { width: 3.75rem; }
+.list-table-fixed .col-first { width: 9%; }
+.list-table-fixed .col-last { width: 12%; }
+.list-table-fixed .col-email { width: 17%; }
+.list-table-fixed .col-type { width: 8rem; }
+.list-table-fixed .col-expiry { width: 11rem; }
+.list-table-fixed .col-date { width: 7rem; }
+.table-sticky thead th { position: sticky; top: 0; z-index: 2; }
+.list-table { --tblr-table-hover-bg: color-mix(in oklab, var(--clidive-yellow) 14%, var(--tblr-bg-surface)); --tblr-table-hover-color: var(--tblr-body-color); }
+.list-table thead th { font-size: .72rem; }
+.list-table td { padding-top: .7rem; padding-bottom: .7rem; }
+.list-table .sort-link { display: inline-flex; align-items: center; gap: .15rem; color: inherit; text-decoration: none; white-space: nowrap; }
+.list-table .sort-link:hover { color: var(--tblr-body-color); }
+.sort-icon .icon { width: .9rem; height: .9rem; opacity: .4; }
+th[aria-sort] .sort-icon .icon { opacity: 1; color: var(--tblr-body-color); }
+th[aria-sort] .sort-link { color: var(--tblr-body-color); }
 .num { font-variant-numeric: tabular-nums; }
-.cell-email { max-width: 16rem; }
-.cell-notes { max-width: 18rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row-archived td { color: var(--tblr-secondary); }
+.cell-id { color: var(--tblr-secondary); font-size: .8rem; white-space: nowrap; }
+.member-link { color: inherit; text-decoration: none; font-weight: 500; }
+.member-link:hover, .member-link:focus { color: var(--tblr-link-color); text-decoration: underline; }
+.cell-email { max-width: 16rem; color: var(--tblr-secondary); }
+.cell-notes { max-width: 20rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-table-fixed .cell-email, .list-table-fixed .cell-notes { max-width: none; }
+.row-archived td, .row-archived .member-link { color: var(--tblr-secondary); }
+.row-archived .member-link { text-decoration: line-through; text-decoration-color: color-mix(in oklab, currentColor 50%, transparent); }
+.row-archived .member-link:hover { text-decoration: line-through underline; }
+/* Membership types are information, not alarms: one quiet outlined badge
+   style, with only the states that need attention in colour. */
+.badge-type { background: transparent; color: var(--tblr-body-color); border: 1px solid var(--tblr-border-color); font-weight: 500; letter-spacing: .01em; }
+.badge-type.type-secondary, .badge-type.type-archived { color: var(--tblr-secondary); border-style: dashed; }
+.badge-type.type-current { color: var(--tblr-green); border-color: currentColor; }
+.badge-type.type-expired { color: var(--tblr-red); border-color: currentColor; }
+.date-expired { color: var(--tblr-red); font-weight: 500; }
+.date-expired::before { content: ""; display: inline-block; width: .4em; height: .4em; margin-inline-end: .45em; border-radius: 50%; background: currentColor; vertical-align: .1em; }
 
 /* Member form: a disabled (read-only) section looks muted. */
 fieldset[disabled] .card-body { background: var(--tblr-bg-surface-secondary, #f9fafb); }
@@ -59,7 +189,13 @@ fieldset[disabled] .card-body { background: var(--tblr-bg-surface-secondary, #f9
 .audit-changes { white-space: pre-wrap; word-break: break-word; font-size: .75rem; }
 .emails-box { font-size: .8rem; }
 
+/* Sign-in page. */
+.login-brand { display: inline-block; }
+
 @media print {
-  .sidebar, .topbar, .form-actions { display: none !important; }
+  .sidebar, .form-actions, .list-filters, .menu { display: none !important; }
   .page-wrapper { margin: 0 !important; }
 }
+
+/* Wide tables get the room; forms stay readable. */
+.page-wrapper [class^=container] { max-width: 96rem; }

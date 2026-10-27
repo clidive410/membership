@@ -65,7 +65,7 @@ func (s *Server) handleMemberList(w http.ResponseWriter, r *http.Request) {
 	}
 	q := r.URL.Query()
 	headers := sortHeaders(s.url("/admin/members"), q, f.Sort, f.Desc, []sortCol{
-		{"id", "ID", "text-end w-1"}, {"first_name", "First name", ""}, {"last_name", "Last name", ""}, {"email", "Email", ""},
+		{"id", "ID", "text-end"}, {"first_name", "First name", ""}, {"last_name", "Last name", ""}, {"email", "Email", ""},
 		{"type", "Clidive type", ""}, {"expiry", "Clidive expiry", "text-end"}, {"bsac", "BSAC renewal", "text-end"},
 		{"last_paid", "Last paid", "text-end"}, {"notes", "Notes", ""},
 	})

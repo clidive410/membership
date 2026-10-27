@@ -418,7 +418,7 @@ func TestBasePathAndHeaders(t *testing.T) {
 		t.Errorf("prefixed redirect: %d %q", w.Code, w.Header().Get("Location"))
 	}
 	w = e.do(t, "GET", "/membership/login", "", nil)
-	if w.Code != 200 || !strings.Contains(w.Body.String(), `href="/membership/static/style.css"`) {
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `href="/membership/static/style.css?v=`) {
 		t.Errorf("prefixed login page: %d", w.Code)
 	}
 	if !strings.Contains(w.Header().Get("Content-Security-Policy"), "default-src 'none'") || w.Header().Get("X-Frame-Options") != "DENY" {
