@@ -45,7 +45,9 @@ func OpenLegacy(ctx context.Context, dsn string) (*sql.DB, error) {
 	if cfg.Params == nil {
 		cfg.Params = map[string]string{}
 	}
-	cfg.Params["charset"] = "utf8mb4" // the server converts from latin1
+	// The server converts from latin1. The tables hold UTF-8 bytes in latin1
+	// columns, so text arrives double-encoded; Map repairs it (RepairMojibake).
+	cfg.Params["charset"] = "utf8mb4"
 	db, err := sql.Open("mysql", cfg.FormatDSN())
 	if err != nil {
 		return nil, err
@@ -154,6 +156,7 @@ func (im *Importer) readTypes(ctx context.Context) ([]members.MembershipType, er
 		if err := rows.Scan(&t.ID, &t.Name); err != nil {
 			return nil, err
 		}
+		t.Name = RepairMojibake(t.Name)
 		out = append(out, t)
 	}
 	return out, rows.Err()
@@ -177,6 +180,7 @@ func (im *Importer) readRenewalTypes(ctx context.Context) ([]members.MembershipT
 		if err := rows.Scan(&t.ID, &t.Name); err != nil {
 			return nil, err
 		}
+		t.Name = RepairMojibake(t.Name)
 		out = append(out, t)
 	}
 	return out, rows.Err()

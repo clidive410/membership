@@ -175,3 +175,21 @@ func TestWarningHasNoValues(t *testing.T) {
 		}
 	}
 }
+
+func TestMapRepairsDoubleEncodedText(t *testing.T) {
+	r := fakeRow()
+	r.FirstName = ns("ZoÃ«")                   // Zoë
+	r.LastName = ns("MÃ¼ller-RenÃ©")           // Müller-René
+	r.Notes = ns("Paid Â£5 â€“ invented note") // Paid £5 – invented note
+	r.ICEAddresses = ns("1 Rue de la FaÃ§ade") // Façade
+	r.Occupation = ns("Café owner")            // already correct
+	m := Map(r, known, now).Member
+	for _, c := range []struct{ got, want string }{
+		{m.FirstName, "Zoë"}, {m.LastName, "Müller-René"}, {m.Notes, "Paid £5 – invented note"},
+		{m.ICEAddress, "1 Rue de la Façade"}, {m.Occupation, "Café owner"},
+	} {
+		if c.got != c.want {
+			t.Errorf("got %q, want %q", c.got, c.want)
+		}
+	}
+}

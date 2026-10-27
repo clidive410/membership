@@ -105,7 +105,9 @@ func (m *mapper) warn(col, problem string) {
 	m.warnings = append(m.warnings, Warning{MemberID: m.id, Column: col, Problem: problem})
 }
 
-func str(s sql.NullString) string { return strings.TrimSpace(s.String) }
+// str returns a trimmed legacy text value with any double encoding repaired
+// (see RepairMojibake). Every text column goes through here.
+func str(s sql.NullString) string { return strings.TrimSpace(RepairMojibake(s.String)) }
 
 func flag(s sql.NullString) bool {
 	n, err := strconv.Atoi(str(s))

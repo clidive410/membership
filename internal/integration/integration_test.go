@@ -403,3 +403,29 @@ func TestStoresAgainstMariaDB(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+// TestLegacyImportRepairsEncoding stores UTF-8 bytes in the latin1 legacy
+// columns, as the old PHP site did, and checks that the import repairs the
+// resulting double encoding (and stays idempotent).
+func TestLegacyImportRepairsEncoding(t *testing.T) {
+	f := setup(t)
+	// _binary literals bypass conversion, so the latin1 columns hold the raw
+	// UTF-8 bytes of "Zoë", "Müller-René" and "Paid £5 – invented".
+	if _, err := f.legacy.ExecContext(f.ctx, `INSERT INTO membership (memberid, firstname, lastname, address1, Town, Postcode,
+		email1, email1use, Notes, OtherQualifications)
+		VALUES (104, _binary X'5A6FC3AB', _binary X'4DC3BC6C6C65722D52656EC3A9', '4 Test Road', 'London', 'ZZ4 4ZZ',
+		'zoe@example.org', 1, _binary X'5061696420C2A33520E2809320696E76656E746564', 'Plain ASCII')`); err != nil {
+		t.Fatal(err)
+	}
+	f.importOnce(t)
+	m, err := members.NewStore(f.app).GetMember(f.ctx, 104)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.FirstName != "Zoë" || m.LastName != "Müller-René" || m.Notes != "Paid £5 – invented" || m.OtherQualifications != "Plain ASCII" {
+		t.Errorf("encoding not repaired: %q %q %q %q", m.FirstName, m.LastName, m.Notes, m.OtherQualifications)
+	}
+	if res := f.importOnce(t); res.Updated != 0 || res.Unchanged != 4 {
+		t.Errorf("re-import after repair not idempotent: %+v", res)
+	}
+}
