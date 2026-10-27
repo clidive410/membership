@@ -24,16 +24,16 @@ type Status string
 // Member list statuses. "current" mirrors the legacy default list: every
 // non-archived member, including those with the Lapsed type.
 const (
-	StatusCurrent  Status = "current"
-	StatusActive   Status = "active" // current, excluding Lapsed
-	StatusArchived Status = "archived"
-	StatusAll      Status = "all"
+	StatusCurrent   Status = "current"
+	StatusNotLapsed Status = "notlapsed" // current, excluding the Lapsed type
+	StatusArchived  Status = "archived"
+	StatusAll       Status = "all"
 )
 
 // ParseStatus returns a valid Status, defaulting to StatusCurrent.
 func ParseStatus(s string) Status {
 	switch Status(s) {
-	case StatusActive, StatusArchived, StatusAll:
+	case StatusNotLapsed, StatusArchived, StatusAll:
 		return Status(s)
 	}
 	return StatusCurrent
@@ -70,7 +70,7 @@ const memberColumns = `m.id, m.legacy_member_id, m.first_name, m.last_name, m.ge
 	m.bsac_direct_debit, m.join_date, m.join_date_raw, m.membership_type_id, COALESCE(mt.name, ''),
 	m.membership_expiry, m.query_text, m.notes, m.diver_grades, m.instructor_grades, m.other_qualifications,
 	m.previous_club, m.committee_mailing, m.instructor_mailing, m.boat_handler_mailing, m.lifeguard_mailing,
-	m.driver, lp.last_paid, m.created_at, m.updated_at, m.deleted_at`
+	m.driver, m.share_contact_details, lp.last_paid, m.created_at, m.updated_at, m.deleted_at`
 
 const memberFrom = ` FROM members m
 	LEFT JOIN membership_types mt ON mt.id = m.membership_type_id
@@ -87,7 +87,7 @@ func scanMember(s scanner) (*Member, error) {
 		&m.BSACDirectDebit, &m.JoinDate, &m.JoinDateRaw, &m.TypeID, &m.TypeName,
 		&m.MembershipExpiry, &m.Query, &m.Notes, &m.DiverGrades, &m.InstructorGrades, &m.OtherQualifications,
 		&m.PreviousClub, &m.CommitteeMailing, &m.InstructorMailing, &m.BoatHandlerMailing, &m.LifeguardMailing,
-		&m.Driver, &m.LastPaid, &m.CreatedAt, &m.UpdatedAt, &m.DeletedAt)
+		&m.Driver, &m.ShareContactDetails, &m.LastPaid, &m.CreatedAt, &m.UpdatedAt, &m.DeletedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +121,7 @@ func (s *Store) ListMembers(ctx context.Context, f Filter) ([]Member, error) {
 	var where []string
 	var args []any
 	switch f.Status {
-	case StatusActive:
+	case StatusNotLapsed:
 		where = append(where, "m.deleted_at IS NULL", fmt.Sprintf("(m.membership_type_id IS NULL OR m.membership_type_id <> %d)", TypeLapsed))
 	case StatusArchived:
 		where = append(where, "m.deleted_at IS NOT NULL")
@@ -188,7 +188,7 @@ const writableColumns = `first_name, last_name, gender, date_of_birth, occupatio
 	ice_phones, ice_address, bsac_member_id, bsac_member_id_if_known, bsac_renewal_due, bsac_annual_fee,
 	bsac_abated, bsac_direct_debit, join_date, join_date_raw, membership_type_id, membership_expiry, query_text,
 	notes, diver_grades, instructor_grades, other_qualifications, previous_club, committee_mailing,
-	instructor_mailing, boat_handler_mailing, lifeguard_mailing, driver`
+	instructor_mailing, boat_handler_mailing, lifeguard_mailing, driver, share_contact_details`
 
 func writableValues(m *Member) []any {
 	return []any{m.FirstName, m.LastName, m.Gender, m.DateOfBirth, m.Occupation, m.Address1, m.Address2, m.Address3,
@@ -196,7 +196,7 @@ func writableValues(m *Member) []any {
 		m.ICEPhones, m.ICEAddress, m.BSACMemberID, m.BSACMemberIDIfKnown, m.BSACRenewalDue, m.BSACAnnualFee,
 		m.BSACAbated, m.BSACDirectDebit, m.JoinDate, m.JoinDateRaw, m.TypeID, m.MembershipExpiry, m.Query,
 		m.Notes, m.DiverGrades, m.InstructorGrades, m.OtherQualifications, m.PreviousClub, m.CommitteeMailing,
-		m.InstructorMailing, m.BoatHandlerMailing, m.LifeguardMailing, m.Driver}
+		m.InstructorMailing, m.BoatHandlerMailing, m.LifeguardMailing, m.Driver, m.ShareContactDetails}
 }
 
 func columnList() []string {

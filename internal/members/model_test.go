@@ -1,6 +1,10 @@
 package members
 
-import "testing"
+import (
+	"database/sql"
+	"testing"
+	"time"
+)
 
 func TestParseMoney(t *testing.T) {
 	cases := map[string]string{"": "", "57": "57.00", "57.5": "57.50", "£12.34": "12.34", "0": "0.00", ".5": "0.50", "-3": "-3.00"}
@@ -42,6 +46,39 @@ func TestValidate(t *testing.T) {
 		if _, ok := errs[f]; !ok {
 			t.Errorf("expected error for %s, got %v", f, errs)
 		}
+	}
+}
+
+func TestExpired(t *testing.T) {
+	today := time.Date(2026, 10, 27, 15, 0, 0, 0, time.UTC)
+	day := func(y, m, d int) sql.NullTime {
+		return sql.NullTime{Time: time.Date(y, time.Month(m), d, 0, 0, 0, 0, time.UTC), Valid: true}
+	}
+	cases := []struct {
+		exp  sql.NullTime
+		want bool
+	}{{sql.NullTime{}, false}, {day(2026, 10, 26), true}, {day(2026, 10, 27), false}, {day(2027, 1, 1), false}}
+	for _, c := range cases {
+		m := &Member{MembershipExpiry: c.exp}
+		if got := m.Expired(today); got != c.want {
+			t.Errorf("Expired(%v) = %v, want %v", c.exp, got, c.want)
+		}
+	}
+}
+
+func TestDirectory(t *testing.T) {
+	m := &Member{ID: 3, FirstName: "Ann", LastName: "Diver", Email1: "ann@example.org", Phone1: "0700",
+		DiverGrades: "Dive Leader", InstructorMailing: true, Driver: true}
+	e := m.Directory()
+	if e.Email != "" || e.Phone != "" {
+		t.Error("contact details shown without opt-in")
+	}
+	if len(e.Roles) != 2 || e.Roles[0] != "Instructor" {
+		t.Errorf("roles = %v", e.Roles)
+	}
+	m.ShareContactDetails = true
+	if e = m.Directory(); e.Email != "ann@example.org" || e.Phone != "0700" {
+		t.Errorf("shared contact missing: %+v", e)
 	}
 }
 

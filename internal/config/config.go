@@ -22,10 +22,12 @@ type Config struct {
 	SessionSecret []byte        // SESSION_SECRET, at least 32 bytes
 	BaseURL       *url.URL      // BASE_URL, public URL incl. optional path prefix
 	CookieSecure  bool          // COOKIE_SECURE, defaults to true when BASE_URL is https
+	CookieDomain  string        // COOKIE_DOMAIN, e.g. "clidive.org" to share the session with the WordPress site
 	SessionTTL    time.Duration // SESSION_TTL, default 12h
 	LogLevel      slog.Level    // LOG_LEVEL: debug, info, warn, error
 	LogFormat     string        // LOG_FORMAT: json (default) or text
 	AutoMigrate   bool          // AUTO_MIGRATE, run schema migrations at startup (default true)
+	MailFrom      string        // MAIL_FROM, sender for future emails (not used yet), default membership@clidive.org
 }
 
 // BasePath returns the path prefix of BaseURL without a trailing slash
@@ -86,9 +88,11 @@ func Load(getenv Getenv) (*Config, error) {
 	}
 
 	c := &Config{
-		ListenAddr: get("LISTEN_ADDR", ":8080"),
-		DBDSN:      get("DB_DSN", ""),
-		LogFormat:  strings.ToLower(get("LOG_FORMAT", "json")),
+		ListenAddr:   get("LISTEN_ADDR", ":8080"),
+		DBDSN:        get("DB_DSN", ""),
+		LogFormat:    strings.ToLower(get("LOG_FORMAT", "json")),
+		CookieDomain: strings.TrimPrefix(get("COOKIE_DOMAIN", ""), "."),
+		MailFrom:     get("MAIL_FROM", "membership@clidive.org"),
 	}
 	if c.DBDSN == "" {
 		errs = append(errs, errors.New("DB_DSN is required"))

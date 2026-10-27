@@ -53,6 +53,7 @@ func Merge(dst, src *Member, groups ...FieldGroup) {
 			dst.Phone1, dst.Phone2, dst.Phone3 = src.Phone1, src.Phone2, src.Phone3
 			dst.Email1, dst.Email2, dst.Email1Use, dst.Email2Use = src.Email1, src.Email2, src.Email1Use, src.Email2Use
 			dst.ICEName, dst.ICERelation, dst.ICEPhones, dst.ICEAddress = src.ICEName, src.ICERelation, src.ICEPhones, src.ICEAddress
+			dst.ShareContactDetails = src.ShareContactDetails
 		case GroupClub:
 			dst.CommitteeMailing, dst.InstructorMailing = src.CommitteeMailing, src.InstructorMailing
 			dst.BoatHandlerMailing, dst.LifeguardMailing, dst.Driver = src.BoatHandlerMailing, src.LifeguardMailing, src.Driver
@@ -104,7 +105,7 @@ func fieldValues(m *Member) []fieldValue {
 		{"other_qualifications", m.OtherQualifications}, {"previous_club", m.PreviousClub},
 		{"committee_mailing", b(m.CommitteeMailing)}, {"instructor_mailing", b(m.InstructorMailing)},
 		{"boat_handler_mailing", b(m.BoatHandlerMailing)}, {"lifeguard_mailing", b(m.LifeguardMailing)},
-		{"driver", b(m.Driver)}, {"deleted_at", FormatDate(m.DeletedAt)},
+		{"driver", b(m.Driver)}, {"share_contact_details", b(m.ShareContactDetails)}, {"deleted_at", FormatDate(m.DeletedAt)},
 	}
 }
 

@@ -80,6 +80,10 @@ type Member struct {
 	LifeguardMailing   bool
 	Driver             bool
 
+	// ShareContactDetails is the member's opt-in to show contact details in
+	// the future member directory (see Directory).
+	ShareContactDetails bool
+
 	LastPaid  sql.NullTime // read-only, latest payments.paid_on
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -272,17 +276,48 @@ func ParseDate(s string) (sql.NullTime, error) {
 	return sql.NullTime{Time: t, Valid: true}, nil
 }
 
-// MembershipActive reports whether the member counts as a current, paid-up
-// member on the given day: not archived, not of the Lapsed type, and with no
-// Clidive expiry date or one that is today or later. (Many legacy members
-// have no expiry date; they count as active unless Lapsed or archived.)
-func (m *Member) MembershipActive(today time.Time) bool {
-	if m.Archived() || (m.TypeID.Valid && m.TypeID.Int64 == TypeLapsed) {
+// Expired reports whether the Clidive membership expiry date is before the
+// given day. This is the only derived status: membership type and expiry
+// are explicit fields maintained by the membership manager, and a member
+// without an expiry date is not expired.
+func (m *Member) Expired(today time.Time) bool {
+	if !m.MembershipExpiry.Valid {
 		return false
 	}
-	if !m.MembershipExpiry.Valid {
-		return true
-	}
 	y, mo, d := today.Date()
-	return !m.MembershipExpiry.Time.Before(time.Date(y, mo, d, 0, 0, 0, 0, time.UTC))
+	return m.MembershipExpiry.Time.Before(time.Date(y, mo, d, 0, 0, 0, 0, time.UTC))
+}
+
+// DirectoryEntry is the read model for a future members-only directory:
+// what one member may see about another. Contact details are included only
+// when the member opted in with ShareContactDetails. Roles (e.g. committee,
+// instructor) are derived from the mailing-list flags.
+type DirectoryEntry struct {
+	ID               int64
+	FirstName        string
+	LastName         string
+	DiverGrades      string
+	InstructorGrades string
+	Roles            []string
+	Email            string // only if shared
+	Phone            string // only if shared
+}
+
+// Directory returns the directory view of m.
+func (m *Member) Directory() DirectoryEntry {
+	e := DirectoryEntry{ID: m.ID, FirstName: m.FirstName, LastName: m.LastName,
+		DiverGrades: m.DiverGrades, InstructorGrades: m.InstructorGrades}
+	for _, r := range []struct {
+		on   bool
+		name string
+	}{{m.CommitteeMailing, "Committee"}, {m.InstructorMailing, "Instructor"}, {m.BoatHandlerMailing, "Boat handler"},
+		{m.LifeguardMailing, "Lifeguard"}, {m.Driver, "Driver"}} {
+		if r.on {
+			e.Roles = append(e.Roles, r.name)
+		}
+	}
+	if m.ShareContactDetails {
+		e.Email, e.Phone = m.Email1, m.Phone1
+	}
+	return e
 }

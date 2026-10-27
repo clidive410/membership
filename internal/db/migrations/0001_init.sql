@@ -16,6 +16,14 @@ INSERT INTO membership_types (id, name, sort_order) VALUES
   (5, '3 Month (eg OD)', 50),
   (6, 'Lapsed', 60);
 
+-- Renewal types (legacy membershiprenewaltype, empty in the legacy data;
+-- kept so the importer can carry it over if it has rows).
+CREATE TABLE renewal_types (
+  id    INT UNSIGNED NOT NULL,
+  name  VARCHAR(45)  NOT NULL,
+  PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- One row per member (replaces legacy `membership`). The legacy login
 -- columns (email, surname, password, passhint, admin, session, LastLogin)
 -- are intentionally not carried over.
@@ -64,6 +72,7 @@ CREATE TABLE members (
   boat_handler_mailing     BOOLEAN      NOT NULL DEFAULT FALSE,
   lifeguard_mailing        BOOLEAN      NOT NULL DEFAULT FALSE,
   driver                   BOOLEAN      NOT NULL DEFAULT FALSE,
+  share_contact_details    BOOLEAN      NOT NULL DEFAULT FALSE COMMENT 'member opts in to showing contact details in the future member directory',
   created_at               DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at               DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   deleted_at               DATETIME     NULL COMMENT 'soft delete ("archived")',

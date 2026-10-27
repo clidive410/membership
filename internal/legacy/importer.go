@@ -22,6 +22,7 @@ const legacyPaymentNote = "Imported from legacy last_paid"
 // Result summarises an import run. It contains counts and member ids only.
 type Result struct {
 	Types           int
+	RenewalTypes    int // -1 when the legacy table does not exist
 	Read            int
 	Created         int
 	Updated         int
@@ -84,6 +85,10 @@ func (im *Importer) Run(ctx context.Context) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	renewalTypes, err := im.readRenewalTypes(ctx)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := im.readMembers(ctx)
 	if err != nil {
 		return nil, err
@@ -104,6 +109,17 @@ func (im *Importer) Run(ctx context.Context) (*Result, error) {
 			return nil, fmt.Errorf("importing membership type %d: %w", t.ID, err)
 		}
 		res.Types++
+	}
+
+	if renewalTypes == nil {
+		res.RenewalTypes = -1
+	}
+	for _, t := range renewalTypes {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO renewal_types (id, name) VALUES (?, ?)
+			ON DUPLICATE KEY UPDATE name = VALUES(name)`, t.ID, t.Name); err != nil {
+			return nil, fmt.Errorf("importing renewal type %d: %w", t.ID, err)
+		}
+		res.RenewalTypes++
 	}
 
 	for _, r := range rows {
@@ -133,6 +149,29 @@ func (im *Importer) readTypes(ctx context.Context) ([]members.MembershipType, er
 	}
 	defer rows.Close()
 	var out []members.MembershipType
+	for rows.Next() {
+		var t members.MembershipType
+		if err := rows.Scan(&t.ID, &t.Name); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// readRenewalTypes reads membershiprenewaltype. It returns nil (not an
+// error) when the table does not exist, and an empty non-nil slice when it
+// is empty.
+func (im *Importer) readRenewalTypes(ctx context.Context) ([]members.MembershipType, error) {
+	rows, err := im.Legacy.QueryContext(ctx, "SELECT RenewalTypeId, RenewalTypeDesc FROM membershiprenewaltype ORDER BY RenewalTypeId")
+	var me *mysql.MySQLError
+	if errors.As(err, &me) && me.Number == 1146 { // ER_NO_SUCH_TABLE
+		return nil, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("reading legacy renewal types: %w", err)
+	}
+	defer rows.Close()
+	out := []members.MembershipType{}
 	for rows.Next() {
 		var t members.MembershipType
 		if err := rows.Scan(&t.ID, &t.Name); err != nil {
@@ -219,14 +258,14 @@ func scanExisting(ctx context.Context, tx *sql.Tx, id int64) (*members.Member, e
 		ice_address, bsac_member_id, bsac_member_id_if_known, bsac_renewal_due, bsac_annual_fee, bsac_abated,
 		bsac_direct_debit, join_date, join_date_raw, membership_type_id, membership_expiry, query_text, notes, diver_grades,
 		instructor_grades, other_qualifications, previous_club, committee_mailing, instructor_mailing,
-		boat_handler_mailing, lifeguard_mailing, driver, deleted_at FROM members WHERE id = ?`, id).Scan(
+		boat_handler_mailing, lifeguard_mailing, driver, share_contact_details, deleted_at FROM members WHERE id = ?`, id).Scan(
 		&m.FirstName, &m.LastName, &m.Gender, &m.DateOfBirth, &m.Occupation, &m.Address1, &m.Address2, &m.Address3,
 		&m.Town, &m.Postcode, &m.Phone1, &m.Phone2, &m.Phone3, &m.Email1, &m.Email2, &m.Email1Use, &m.Email2Use,
 		&m.ICEName, &m.ICERelation, &m.ICEPhones, &m.ICEAddress, &m.BSACMemberID, &m.BSACMemberIDIfKnown,
 		&m.BSACRenewalDue, &m.BSACAnnualFee, &m.BSACAbated, &m.BSACDirectDebit, &m.JoinDate, &m.JoinDateRaw,
 		&m.TypeID, &m.MembershipExpiry, &m.Query, &m.Notes, &m.DiverGrades, &m.InstructorGrades,
 		&m.OtherQualifications, &m.PreviousClub, &m.CommitteeMailing, &m.InstructorMailing,
-		&m.BoatHandlerMailing, &m.LifeguardMailing, &m.Driver, &m.DeletedAt)
+		&m.BoatHandlerMailing, &m.LifeguardMailing, &m.Driver, &m.ShareContactDetails, &m.DeletedAt)
 	return &m, err
 }
 
