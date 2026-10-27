@@ -1,4 +1,17 @@
+# Go
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+coverage.*
+vendor/
+
+# Local config
+.env
+*.local
+
+# Editors / OS
 .DS_Store
 .idea/
 .vscode/
-.env
