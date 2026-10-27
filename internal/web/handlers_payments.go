@@ -90,9 +90,9 @@ func (s *Server) bulkPage(w http.ResponseWriter, r *http.Request, status int, ty
 		Types: types, TypeID: typeID, Members: ms, Selected: q.Get("select") != "none",
 		Sort: sort, Desc: desc, Methods: members.PaymentMethods,
 		Today: s.opt.Now().Format(members.DateLayout), Error: errMsg, Now: s.opt.Now(),
-		Headers: sortHeaders(s.url("/admin/payments"), url.Values{"type": {strconv.FormatInt(typeID, 10)}}, sort, desc, [][2]string{
-			{"first_name", "First name"}, {"last_name", "Last name"}, {"expiry", "Clidive expiry"},
-			{"last_paid", "Last paid"}, {"notes", "Notes"},
+		Headers: sortHeaders(s.url("/admin/payments"), url.Values{"type": {strconv.FormatInt(typeID, 10)}}, sort, desc, []sortCol{
+			{"first_name", "First name", ""}, {"last_name", "Last name", ""}, {"expiry", "Clidive expiry", "text-end"},
+			{"last_paid", "Last paid", "text-end"}, {"notes", "Notes", ""},
 		}),
 	})
 }

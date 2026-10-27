@@ -1,44 +1,56 @@
+{{define "pretitle"}}<div class="page-pretitle">Payments</div>{{end}}
 {{define "content"}}
 {{$d := .Data}}
-<h1>Payment management</h1>
-<p>Record a payment (and optionally a renewal) for every selected member at once.</p>
-<nav aria-label="Membership type" class="tabs"><ul>
-  {{range $d.Types}}<li><a href="{{url "/admin/payments"}}?type={{.ID}}" {{if eq .ID $d.TypeID}}aria-current="page"{{end}}>{{.Name}}</a></li>{{end}}
-</ul></nav>
-{{with $d.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+<p class="text-secondary">Record a payment (and optionally a renewal) for every selected member of one membership type at once. Archived members are not shown.</p>
+{{with $d.Error}}<div class="alert alert-danger" role="alert"><div class="alert-icon">{{icon "alert-triangle"}}</div><div>{{.}}</div></div>{{end}}
 <form method="post" action="{{url "/admin/payments"}}">
-  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-  <input type="hidden" name="type" value="{{$d.TypeID}}">
-  <div class="inline">
-  <p><label for="PaidOn">Date of payment</label><input id="PaidOn" name="PaidOn" type="date" value="{{$d.Today}}" required></p>
-  <p><label for="NewExpiry">New Clidive expiry (optional)</label><input id="NewExpiry" name="NewExpiry" type="date"></p>
-  <p><label for="Amount">Amount each (£, optional)</label><input id="Amount" name="Amount" inputmode="decimal" size="8"></p>
-  <p><label for="Method">Method (optional)</label><select id="Method" name="Method">{{range $d.Methods}}<option value="{{.}}">{{.}}</option>{{end}}</select></p>
-  <p><label for="Note">Note</label><input id="Note" name="Note" maxlength="255"></p>
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+<input type="hidden" name="type" value="{{$d.TypeID}}">
+<div class="card">
+  <div class="card-header">
+    <nav aria-label="Membership type">
+      <ul class="nav nav-tabs card-header-tabs">
+        {{range $d.Types}}<li class="nav-item"><a class="nav-link{{if eq .ID $d.TypeID}} active{{end}}" href="{{url "/admin/payments"}}?type={{.ID}}" {{if eq .ID $d.TypeID}}aria-current="page"{{end}}>{{.Name}}</a></li>{{end}}
+      </ul>
+    </nav>
   </div>
-  <p><button type="submit">Record for all selected</button>
-  {{if $d.Selected}}<a href="{{url "/admin/payments"}}?type={{$d.TypeID}}&amp;select=none">Untick all</a>{{else}}<a href="{{url "/admin/payments"}}?type={{$d.TypeID}}">Tick all</a>{{end}}</p>
-  <p>{{len $d.Members}} member(s) of this type (archived members are not shown).</p>
-  <div class="scroll">
-  <table class="list">
-    <thead><tr><th scope="col">Select</th>
-      {{range $d.Headers}}<th scope="col"{{if .AriaSort}} aria-sort="{{.AriaSort}}"{{end}}><a href="{{.Href}}">{{.Label}}</a></th>{{end}}
-    </tr></thead>
-    <tbody>
-    {{range $d.Members}}
-    <tr>
-      <td><input type="checkbox" name="member" value="{{.ID}}" id="m{{.ID}}" {{if $d.Selected}}checked{{end}}><label for="m{{.ID}}" class="visually-hidden">Select {{.FullName}}</label></td>
-      <td><a href="{{url "/admin/members/"}}{{.ID}}">{{.FirstName}}</a></td>
-      <td><a href="{{url "/admin/members/"}}{{.ID}}">{{.LastName}}</a></td>
-      <td>{{ukdate .MembershipExpiry}}{{if .Expired $d.Now}} <span class="tag warn">expired</span>{{end}}</td>
-      <td>{{ukdate .LastPaid}}</td>
-      <td>{{.Notes}}</td>
-    </tr>
-    {{else}}
-    <tr><td colspan="6">No current members of this type.</td></tr>
-    {{end}}
-    </tbody>
-  </table>
+  <div class="card-body border-bottom">
+    <h2 class="visually-hidden">Payment details</h2>
+    <div class="row g-3 align-items-end">
+      <div class="col-sm-6 col-lg-2"><label class="form-label required" for="PaidOn">Date of payment</label><input class="form-control" id="PaidOn" name="PaidOn" type="date" value="{{$d.Today}}" required></div>
+      <div class="col-sm-6 col-lg-2"><label class="form-label" for="NewExpiry">New Clidive expiry (optional)</label><input class="form-control" id="NewExpiry" name="NewExpiry" type="date"></div>
+      <div class="col-sm-4 col-lg-2"><label class="form-label" for="Amount">Amount each (£)</label><input class="form-control" id="Amount" name="Amount" inputmode="decimal" placeholder="optional"></div>
+      <div class="col-sm-4 col-lg-2"><label class="form-label" for="Method">Method</label><select class="form-select" id="Method" name="Method">{{range $d.Methods}}<option value="{{.}}">{{if .}}{{.}}{{else}}Not stated{{end}}</option>{{end}}</select></div>
+      <div class="col-sm-4 col-lg-4"><label class="form-label" for="Note">Note</label><input class="form-control" id="Note" name="Note" maxlength="255"></div>
+    </div>
   </div>
+  <div class="table-responsive table-scroll">
+    <table class="table table-vcenter table-hover card-table table-sticky">
+      <caption class="visually-hidden">Current members of this type. Ticked members receive the payment.</caption>
+      <thead><tr><th scope="col" class="w-1"><span class="visually-hidden">Select</span></th>
+        {{range $d.Headers}}{{template "sorthead" .}}{{end}}
+      </tr></thead>
+      <tbody>
+      {{range $d.Members}}
+      <tr>
+        <td><input class="form-check-input m-0 align-middle" type="checkbox" name="member" value="{{.ID}}" id="m{{.ID}}" {{if $d.Selected}}checked{{end}}><label for="m{{.ID}}" class="visually-hidden">Select {{.FullName}}</label></td>
+        <td><a href="{{url "/admin/members/"}}{{.ID}}">{{.FirstName}}</a></td>
+        <td><a href="{{url "/admin/members/"}}{{.ID}}">{{.LastName}}</a></td>
+        <td class="text-end text-nowrap num">{{ukdate .MembershipExpiry}}{{if .Expired $d.Now}} <span class="badge bg-red-lt" data-status="expired">expired</span>{{end}}</td>
+        <td class="text-end text-nowrap num">{{ukdate .LastPaid}}</td>
+        <td class="text-secondary"><div class="cell-notes" {{with .Notes}}title="{{.}}"{{end}}>{{.Notes}}</div></td>
+      </tr>
+      {{else}}
+      <tr><td colspan="6"><div class="empty py-4"><p class="empty-title">No current members of this type</p></div></td></tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer d-flex flex-wrap gap-2 align-items-center">
+    <span class="text-secondary">{{len $d.Members}} member(s) of this type</span>
+    {{if $d.Selected}}<a class="btn btn-link" href="{{url "/admin/payments"}}?type={{$d.TypeID}}&amp;select=none">Untick all</a>{{else}}<a class="btn btn-link" href="{{url "/admin/payments"}}?type={{$d.TypeID}}">Tick all</a>{{end}}
+    <button type="submit" class="btn btn-primary ms-auto">{{icon "check"}} Record for all ticked</button>
+  </div>
+</div>
 </form>
 {{end}}

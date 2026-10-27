@@ -1,15 +1,19 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/gorilla/mux"
 
 	"github.com/clidive410/membership/internal/auth"
+	"github.com/clidive410/membership/internal/members"
 )
 
 func TestHeadAnswersLikeGet(t *testing.T) {
@@ -118,5 +122,63 @@ func TestTimeout(t *testing.T) {
 	h.ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("timeout: %d", w.Code)
+	}
+}
+
+func TestPaginate(t *testing.T) {
+	q := url.Values{"q": {"x"}, "page": {"3"}}
+	lo, hi, p := paginate("/admin/members", q, 3, 230, 50)
+	if lo != 100 || hi != 150 || p.Pages != 5 || p.From != 101 || p.To != 150 {
+		t.Errorf("page 3: %d %d %+v", lo, hi, p)
+	}
+	if string(p.Prev) != "/admin/members?page=2&q=x" || string(p.Next) != "/admin/members?page=4&q=x" {
+		t.Errorf("prev/next: %q %q", p.Prev, p.Next)
+	}
+	if _, _, p := paginate("/a", nil, 99, 10, 50); p.Page != 1 || p.Prev != "" || p.Next != "" || p.To != 10 {
+		t.Errorf("clamped: %+v", p)
+	}
+	if lo, hi, p := paginate("/a", nil, 1, 0, 50); lo != 0 || hi != 0 || p.From != 0 {
+		t.Errorf("empty: %+v", p)
+	}
+	_, _, p = paginate("/a", nil, 10, 1000, 50)
+	gaps := 0
+	for _, l := range p.Links {
+		if l.Gap {
+			gaps++
+		}
+	}
+	if gaps != 2 || len(p.Links) != 9 {
+		t.Errorf("windowed links: %+v", p.Links)
+	}
+}
+
+func TestMemberListPaginates(t *testing.T) {
+	e := newEnv(t, "")
+	for i := range 120 {
+		e.fm.add(members.Member{FirstName: "Pat", LastName: fmt.Sprintf("Page%03d", i), Email1: fmt.Sprintf("p%d@example.org", i)})
+	}
+	tok := e.fa.session("admin@example.org")
+	body := e.do(t, "GET", "/admin/members?sort=last_name&page=2", tok, nil).Body.String()
+	if !strings.Contains(body, "Showing <strong>51–100</strong> of <strong>122</strong>") || !strings.Contains(body, `aria-current="page">2</a>`) {
+		t.Error("page 2 not rendered")
+	}
+}
+
+// TestPagesRender renders every page for each role so that template errors
+// (e.g. an unknown icon) fail a test rather than production.
+func TestPagesRender(t *testing.T) {
+	e := newEnv(t, "")
+	for _, who := range []string{"admin@example.org", "manager@example.org"} {
+		tok := e.fa.session(who)
+		for _, p := range []string{"/admin/members", "/admin/members?status=all", "/admin/members/1", "/admin/members/3",
+			"/admin/members/new", "/admin/payments", "/admin/emails", "/admin/members/999", "/login"} {
+			w := e.do(t, "GET", p, tok, nil)
+			if w.Code >= 500 {
+				t.Errorf("%s %s: %d", who, p, w.Code)
+			}
+		}
+	}
+	if w := e.do(t, "GET", "/admin/members", e.fa.session("ada@example.org"), nil); w.Code != 403 || !strings.Contains(w.Body.String(), "empty-title") {
+		t.Errorf("member 403 page: %d", w.Code)
 	}
 }

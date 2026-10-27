@@ -176,7 +176,7 @@ func TestMemberListFiltersAndEscaping(t *testing.T) {
 	if strings.Contains(body, "<script>x") || !strings.Contains(body, "&lt;script&gt;") {
 		t.Error("member names must be HTML-escaped")
 	}
-	if !strings.Contains(body, "expired") {
+	if !strings.Contains(body, `data-status="expired"`) {
 		t.Error("expired tag missing for a member whose expiry is in the past")
 	}
 	body = e.do(t, "GET", "/admin/members?status=all&q=current", tok, nil).Body.String()

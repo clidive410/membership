@@ -15,13 +15,15 @@ import (
 )
 
 type listData struct {
-	Members []members.Member
-	Types   []members.MembershipType
-	Filter  members.Filter
-	TypeArg string
-	Count   int
-	Headers []sortHeader
-	Now     time.Time
+	Members  []members.Member // the current page
+	Types    []members.MembershipType
+	Filter   members.Filter
+	TypeArg  string
+	Count    int // all matching members
+	Headers  []sortHeader
+	Pager    pager
+	Filtered bool // any filter other than the default
+	Now      time.Time
 }
 
 func parseFilter(r *http.Request) (members.Filter, string) {
@@ -61,12 +63,18 @@ func (s *Server) handleMemberList(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	headers := sortHeaders(s.url("/admin/members"), r.URL.Query(), f.Sort, f.Desc, [][2]string{
-		{"id", "ID"}, {"first_name", "First name"}, {"last_name", "Last name"}, {"email", "Email"},
-		{"bsac", "BSAC renewal"}, {"type", "Clidive type"}, {"expiry", "Clidive expiry"},
-		{"last_paid", "Last paid"}, {"notes", "Notes"},
+	q := r.URL.Query()
+	headers := sortHeaders(s.url("/admin/members"), q, f.Sort, f.Desc, []sortCol{
+		{"id", "ID", "text-end w-1"}, {"first_name", "First name", ""}, {"last_name", "Last name", ""}, {"email", "Email", ""},
+		{"type", "Clidive type", ""}, {"expiry", "Clidive expiry", "text-end"}, {"bsac", "BSAC renewal", "text-end"},
+		{"last_paid", "Last paid", "text-end"}, {"notes", "Notes", ""},
 	})
-	s.render(w, r, http.StatusOK, "members", "Members", listData{Members: ms, Types: types, Filter: f, TypeArg: typeArg, Count: len(ms), Headers: headers, Now: s.opt.Now()})
+	requested, _ := strconv.Atoi(q.Get("page"))
+	lo, hi, pg := paginate(s.url("/admin/members"), q, requested, len(ms), pageSize)
+	s.render(w, r, http.StatusOK, "members", "Members", listData{
+		Members: ms[lo:hi], Types: types, Filter: f, TypeArg: typeArg, Count: len(ms), Headers: headers, Pager: pg,
+		Filtered: f.Query != "" || typeArg != "" || f.Status != members.StatusCurrent, Now: s.opt.Now(),
+	})
 }
 
 type memberData struct {

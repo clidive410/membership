@@ -1,55 +1,83 @@
+{{define "pretitle"}}<div class="page-pretitle">Committee</div>{{end}}
+{{define "heading"}}Members <span class="badge bg-blue-lt ms-1 align-middle">{{.Data.Count}}</span>{{end}}
+{{define "actions"}}
+{{if permit .P "members.export"}}
+<a class="btn btn-outline-secondary" href="{{url "/admin/export.csv"}}">{{icon "download"}} Export current</a>
+<a class="btn btn-outline-secondary" href="{{url "/admin/export.csv"}}?status=all">{{icon "file-spreadsheet"}} Export all (incl. archived)</a>
+{{end}}
+{{if permit .P "members.create"}}<a class="btn btn-primary" href="{{url "/admin/members/new"}}">{{icon "plus"}} New member</a>{{end}}
+{{end}}
+
 {{define "content"}}
 {{$d := .Data}}
-<h1>Members</h1>
-<form method="get" action="{{url "/admin/members"}}" class="filters" role="search">
-  <p><label for="q">Search</label>
-  <input id="q" name="q" type="search" value="{{$d.Filter.Query}}" placeholder="Name, email, BSAC no., postcode or ID"></p>
-  <p><label for="type">Clidive type</label>
-  <select id="type" name="type">
-    <option value="">Any type</option>
-    {{range $d.Types}}<option value="{{.ID}}" {{if eq (itoa .ID) $d.TypeArg}}selected{{end}}>{{.Name}}</option>{{end}}
-    <option value="none" {{if eq $d.TypeArg "none"}}selected{{end}}>No type set</option>
-  </select></p>
-  <p><label for="status">Status</label>
-  <select id="status" name="status">
-    <option value="current" {{if eq $d.Filter.Status "current"}}selected{{end}}>Current (not archived, incl. Lapsed)</option>
-    <option value="notlapsed" {{if eq $d.Filter.Status "notlapsed"}}selected{{end}}>Current, excluding Lapsed type</option>
-    <option value="archived" {{if eq $d.Filter.Status "archived"}}selected{{end}}>Archived</option>
-    <option value="all" {{if eq $d.Filter.Status "all"}}selected{{end}}>All</option>
-  </select></p>
-  {{if ne $d.Filter.Sort "last_name"}}<input type="hidden" name="sort" value="{{$d.Filter.Sort}}">{{end}}
-  {{if $d.Filter.Desc}}<input type="hidden" name="dir" value="desc">{{end}}
-  <p><button type="submit">Filter</button> <a href="{{url "/admin/members"}}">Reset</a></p>
-</form>
-{{if permit .P "members.export"}}
-<p class="actions">
-  <a class="button" href="{{url "/admin/export.csv"}}">Current to CSV</a>
-  <a class="button" href="{{url "/admin/export.csv"}}?status=all">All (incl. archived) to CSV</a>
-</p>
-{{end}}
-<p>{{$d.Count}} member(s).</p>
-<div class="scroll">
-<table class="list">
-  <thead><tr>
-    {{range $d.Headers}}<th scope="col"{{if .AriaSort}} aria-sort="{{.AriaSort}}"{{end}}><a href="{{.Href}}">{{.Label}}</a></th>{{end}}
-  </tr></thead>
-  <tbody>
-  {{range $d.Members}}
-    <tr{{if .Archived}} class="archived"{{end}}>
-      <td><a href="{{url "/admin/members/"}}{{.ID}}">{{.ID}}</a></td>
-      <td><a href="{{url "/admin/members/"}}{{.ID}}">{{.FirstName}}</a></td>
-      <td><a href="{{url "/admin/members/"}}{{.ID}}">{{.LastName}}</a>{{if .Archived}} <span class="tag">archived</span>{{end}}</td>
-      <td>{{.Email1}}</td>
-      <td>{{ukdate .BSACRenewalDue}}</td>
-      <td>{{.TypeName}}</td>
-      <td>{{ukdate .MembershipExpiry}}{{if .Expired $d.Now}} <span class="tag warn">expired</span>{{end}}</td>
-      <td>{{ukdate .LastPaid}}</td>
-      <td>{{.Notes}}</td>
-    </tr>
-  {{else}}
-    <tr><td colspan="9">No members match.</td></tr>
-  {{end}}
-  </tbody>
-</table>
+<div class="card">
+  <div class="card-body border-bottom py-3">
+    <form method="get" action="{{url "/admin/members"}}" role="search" aria-label="Filter members" class="row g-2 align-items-end">
+      <div class="col-12 col-md-5 col-xl-4">
+        <label class="form-label" for="q">Search</label>
+        <div class="input-icon">
+          <span class="input-icon-addon">{{icon "search"}}</span>
+          <input id="q" name="q" type="search" class="form-control" value="{{$d.Filter.Query}}" placeholder="Name, email, BSAC no., postcode or ID">
+        </div>
+      </div>
+      <div class="col-6 col-md-3 col-xl-2">
+        <label class="form-label" for="type">Clidive type</label>
+        <select id="type" name="type" class="form-select">
+          <option value="">Any type</option>
+          {{range $d.Types}}<option value="{{.ID}}" {{if eq (itoa .ID) $d.TypeArg}}selected{{end}}>{{.Name}}</option>{{end}}
+          <option value="none" {{if eq $d.TypeArg "none"}}selected{{end}}>No type set</option>
+        </select>
+      </div>
+      <div class="col-6 col-md-4 col-xl-3">
+        <label class="form-label" for="status">Status</label>
+        <select id="status" name="status" class="form-select">
+          <option value="current" {{if eq $d.Filter.Status "current"}}selected{{end}}>Current (not archived, incl. Lapsed)</option>
+          <option value="notlapsed" {{if eq $d.Filter.Status "notlapsed"}}selected{{end}}>Current, excluding Lapsed type</option>
+          <option value="archived" {{if eq $d.Filter.Status "archived"}}selected{{end}}>Archived</option>
+          <option value="all" {{if eq $d.Filter.Status "all"}}selected{{end}}>All</option>
+        </select>
+      </div>
+      {{if ne $d.Filter.Sort "last_name"}}<input type="hidden" name="sort" value="{{$d.Filter.Sort}}">{{end}}
+      {{if $d.Filter.Desc}}<input type="hidden" name="dir" value="desc">{{end}}
+      <div class="col-12 col-xl-auto">
+        <div class="btn-list">
+          <button type="submit" class="btn btn-primary">{{icon "search"}} Filter</button>
+          {{if $d.Filtered}}<a class="btn btn-link" href="{{url "/admin/members"}}">{{icon "x"}} Reset</a>{{end}}
+        </div>
+      </div>
+    </form>
+  </div>
+  <div class="table-responsive table-scroll">
+    <table class="table table-vcenter table-hover card-table table-sticky">
+      <caption class="visually-hidden">Members, {{$d.Count}} matching. Column headers sort the list.</caption>
+      <thead><tr>{{range $d.Headers}}{{template "sorthead" .}}{{end}}</tr></thead>
+      <tbody>
+      {{range $d.Members}}
+        <tr{{if .Archived}} class="row-archived"{{end}}>
+          <td class="text-end text-secondary num"><a class="text-reset" href="{{url "/admin/members/"}}{{.ID}}">{{.ID}}</a></td>
+          <td><a href="{{url "/admin/members/"}}{{.ID}}">{{.FirstName}}</a></td>
+          <td><a href="{{url "/admin/members/"}}{{.ID}}">{{.LastName}}</a>{{if .Archived}} <span class="badge bg-secondary-lt" data-status="archived">archived</span>{{end}}</td>
+          <td class="text-truncate cell-email">{{.Email1}}</td>
+          <td>{{template "typebadge" .}}</td>
+          <td class="text-end text-nowrap num">{{ukdate .MembershipExpiry}}{{if .Expired $d.Now}} <span class="badge bg-red-lt" data-status="expired">expired</span>{{end}}</td>
+          <td class="text-end text-nowrap num">{{ukdate .BSACRenewalDue}}</td>
+          <td class="text-end text-nowrap num">{{ukdate .LastPaid}}</td>
+          <td class="text-secondary"><div class="cell-notes" {{with .Notes}}title="{{.}}"{{end}}>{{.Notes}}</div></td>
+        </tr>
+      {{else}}
+        <tr><td colspan="9">
+          <div class="empty py-4">
+            <p class="empty-title">No members match</p>
+            <p class="empty-subtitle text-secondary">Try another search or reset the filters.</p>
+          </div>
+        </td></tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer d-flex flex-wrap gap-2 align-items-center">
+    <p class="m-0 text-secondary">{{with $d.Pager}}{{if .Total}}Showing <strong>{{.From}}–{{.To}}</strong> of <strong>{{.Total}}</strong> member(s){{else}}0 member(s){{end}}{{end}}</p>
+    {{template "pagination" $d.Pager}}
+  </div>
 </div>
 {{end}}

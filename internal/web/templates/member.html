@@ -1,147 +1,259 @@
+{{define "pretitle"}}{{$m := .Data.M}}<div class="page-pretitle">{{if .Data.New}}Members{{else}}Member #{{$m.ID}}{{end}}</div>{{end}}
+{{define "heading"}}{{$d := .Data}}{{$m := $d.M}}{{if $d.New}}New member{{else}}{{$m.FullName}}
+  <span class="heading-badges">
+  {{if $m.Archived}}<span class="badge bg-secondary-lt">archived</span>
+  {{else if $m.Expired $d.Now}}<span class="badge bg-red-lt">expired</span>
+  {{else}}<span class="badge bg-green-lt">current</span>{{end}}
+  {{template "typebadge" $m}}
+  </span>{{end}}{{end}}
+{{define "actions"}}<a class="btn btn-outline-secondary" href="{{url "/admin/members"}}">{{icon "arrow-left"}} Back to members</a>{{end}}
+
 {{define "content"}}
 {{$d := .Data}}{{$m := $d.M}}{{$e := $d.Errors}}
-<h1>{{if $d.New}}New member{{else}}{{$m.FullName}} <small>#{{$m.ID}}</small>{{end}}</h1>
-{{if $m.Archived}}<p class="notice">This member was archived on {{ukdate $m.DeletedAt}}. Archived members do not receive mailing-list emails.</p>{{end}}
-{{if and (not $d.New) ($m.Expired $d.Now)}}<p class="notice">Clidive membership expired on {{ukdate $m.MembershipExpiry}}.</p>{{end}}
-{{if $e}}<div class="error" role="alert"><p>Please correct the following:</p><ul>{{range $e}}<li>{{.}}</li>{{end}}</ul></div>{{end}}
-{{if and (not $d.New) (not $d.CanEditAny)}}<p class="hint">You can view this record but not change it.</p>{{end}}
+{{if $m.Archived}}<div class="alert alert-warning" role="status"><div class="alert-icon">{{icon "archive"}}</div><div>This member was archived on {{ukdate $m.DeletedAt}}. Archived members do not receive mailing-list emails.</div></div>{{end}}
+{{if and (not $d.New) ($m.Expired $d.Now)}}<div class="alert alert-danger" role="status"><div class="alert-icon">{{icon "alert-triangle"}}</div><div>Clidive membership expired on {{ukdate $m.MembershipExpiry}}.</div></div>{{end}}
+{{if $e}}<div class="alert alert-danger" role="alert" id="form-errors">
+  <div class="alert-icon">{{icon "alert-triangle"}}</div>
+  <div><h2 class="alert-heading h4">Please correct the following</h2>
+  <ul class="mb-0">{{range $field, $msg := $e}}<li><a href="#{{$field}}">{{$msg}}</a></li>{{end}}</ul></div>
+</div>{{end}}
+{{if and (not $d.New) (not $d.CanEditAny)}}<div class="alert alert-info" role="status"><div class="alert-icon">{{icon "lock"}}</div><div>You can view this record but not change it.</div></div>{{end}}
 
-<form method="post" action="{{if $d.New}}{{url "/admin/members"}}{{else}}{{url "/admin/members/"}}{{$m.ID}}{{end}}" class="member">
+<div class="row row-cards">
+<div class="col-xl-8">
+<form method="post" action="{{if $d.New}}{{url "/admin/members"}}{{else}}{{url "/admin/members/"}}{{$m.ID}}{{end}}" class="member-form" novalidate>
 <input type="hidden" name="csrf_token" value="{{.CSRF}}">
 
-<fieldset {{if not ($d.CanEdit "personal")}}disabled{{end}}>
-  <legend>Personal details</legend>
-  <div class="grid">
-  <p><label for="FirstName">First name <abbr title="required">*</abbr></label><input id="FirstName" name="FirstName" value="{{$m.FirstName}}" required maxlength="100" {{with $e.FirstName}}aria-invalid="true"{{end}}></p>
-  <p><label for="LastName">Last name <abbr title="required">*</abbr></label><input id="LastName" name="LastName" value="{{$m.LastName}}" required maxlength="100" {{with $e.LastName}}aria-invalid="true"{{end}}></p>
-  <p><span class="label" id="gender-label">Gender</span><span role="radiogroup" aria-labelledby="gender-label" class="radios">
-    <label><input type="radio" name="Gender" value="M" {{if eq $m.Gender "M"}}checked{{end}}> Male</label>
-    <label><input type="radio" name="Gender" value="F" {{if eq $m.Gender "F"}}checked{{end}}> Female</label>
-    <label><input type="radio" name="Gender" value="" {{if eq $m.Gender ""}}checked{{end}}> Not stated</label></span></p>
-  <p><label for="DateOfBirth">Date of birth</label><input id="DateOfBirth" name="DateOfBirth" type="date" value="{{date $m.DateOfBirth}}"></p>
-  <p><label for="Occupation">Occupation</label><input id="Occupation" name="Occupation" value="{{$m.Occupation}}" maxlength="100"></p>
-  </div>
-  <div class="grid">
-  <p><label for="Address1">Address 1</label><input id="Address1" name="Address1" value="{{$m.Address1}}" maxlength="100" autocomplete="off"></p>
-  <p><label for="Address2">Address 2</label><input id="Address2" name="Address2" value="{{$m.Address2}}" maxlength="100" autocomplete="off"></p>
-  <p><label for="Address3">Address 3</label><input id="Address3" name="Address3" value="{{$m.Address3}}" maxlength="100" autocomplete="off"></p>
-  <p><label for="Town">Town</label><input id="Town" name="Town" value="{{$m.Town}}" maxlength="100" autocomplete="off"></p>
-  <p><label for="Postcode">Postcode</label><input id="Postcode" name="Postcode" value="{{$m.Postcode}}" maxlength="10" autocomplete="off"></p>
-  <p><label for="Phone1">Telephone 1</label><input id="Phone1" name="Phone1" type="tel" value="{{$m.Phone1}}" maxlength="30" autocomplete="off"></p>
-  <p><label for="Phone2">Telephone 2</label><input id="Phone2" name="Phone2" type="tel" value="{{$m.Phone2}}" maxlength="30" autocomplete="off"></p>
-  <p><label for="Phone3">Telephone 3</label><input id="Phone3" name="Phone3" type="tel" value="{{$m.Phone3}}" maxlength="30" autocomplete="off"></p>
-  </div>
-  <div class="grid">
-  <p><label for="Email1">Email 1 (primary, identifies the member) <abbr title="required">*</abbr></label><input id="Email1" name="Email1" type="email" value="{{$m.Email1}}" required maxlength="254" autocomplete="off" {{with $e.Email1}}aria-invalid="true"{{end}}></p>
-  <p><label for="Email2">Email 2</label><input id="Email2" name="Email2" type="email" value="{{$m.Email2}}" maxlength="254" autocomplete="off" {{with $e.Email2}}aria-invalid="true"{{end}}></p>
-  <p class="check"><label><input type="checkbox" name="Email1Use" {{if $m.Email1Use}}checked{{end}}> Use email 1 for mailing lists</label></p>
-  <p class="check"><label><input type="checkbox" name="Email2Use" {{if $m.Email2Use}}checked{{end}}> Use email 2 for mailing lists</label></p>
-  <p class="check"><label><input type="checkbox" name="ShareContactDetails" {{if $m.ShareContactDetails}}checked{{end}}> Share contact details with other members (future member directory)</label></p>
-  </div>
-  <h3>In case of emergency</h3>
-  <div class="grid">
-  <p><label for="ICEName">Name</label><input id="ICEName" name="ICEName" value="{{$m.ICEName}}" maxlength="100" autocomplete="off"></p>
-  <p><label for="ICERelation">Relation</label><input id="ICERelation" name="ICERelation" value="{{$m.ICERelation}}" maxlength="100" autocomplete="off"></p>
-  <p><label for="ICEPhones">Telephone(s)</label><input id="ICEPhones" name="ICEPhones" value="{{$m.ICEPhones}}" maxlength="100" autocomplete="off"></p>
-  <p><label for="ICEAddress">Address</label><input id="ICEAddress" name="ICEAddress" value="{{$m.ICEAddress}}" maxlength="255" autocomplete="off"></p>
-  </div>
+{{/* Group "personal": personal, contact and emergency details. */}}
+<fieldset{{if not ($d.CanEdit "personal")}} disabled{{end}}>
+  <legend class="visually-hidden">Personal, contact and emergency details</legend>
+  <section class="card mb-3" aria-labelledby="sec-personal">
+    <div class="card-header"><h2 class="card-title" id="sec-personal">Personal</h2>{{if not ($d.CanEdit "personal")}}<span class="card-actions text-secondary small">{{icon "lock"}} Read only</span>{{end}}</div>
+    <div class="card-body"><div class="row">
+      {{template "input" (dict "ID" "FirstName" "Label" "First name" "Value" $m.FirstName "Err" $e.FirstName "Req" true "Max" 100)}}
+      {{template "input" (dict "ID" "LastName" "Label" "Last name" "Value" $m.LastName "Err" $e.LastName "Req" true "Max" 100)}}
+      <div class="col-md-6 mb-3">
+        <fieldset{{if $e.Gender}} aria-describedby="Gender-error"{{end}}>
+          <legend class="form-label">Gender</legend>
+          <div>
+            <label class="form-check form-check-inline"><input class="form-check-input" type="radio" name="Gender" id="Gender" value="M" {{if eq $m.Gender "M"}}checked{{end}}><span class="form-check-label">Male</span></label>
+            <label class="form-check form-check-inline"><input class="form-check-input" type="radio" name="Gender" value="F" {{if eq $m.Gender "F"}}checked{{end}}><span class="form-check-label">Female</span></label>
+            <label class="form-check form-check-inline"><input class="form-check-input" type="radio" name="Gender" value="" {{if eq $m.Gender ""}}checked{{end}}><span class="form-check-label">Not stated</span></label>
+          </div>
+          {{with $e.Gender}}<div class="invalid-feedback d-block" id="Gender-error">{{.}}</div>{{end}}
+        </fieldset>
+      </div>
+      {{template "input" (dict "ID" "DateOfBirth" "Label" "Date of birth" "Value" (date $m.DateOfBirth) "Err" $e.DateOfBirth "Type" "date" "Col" "col-md-3")}}
+      {{template "input" (dict "ID" "Occupation" "Label" "Occupation" "Value" $m.Occupation "Max" 100 "Col" "col-md-3")}}
+    </div></div>
+  </section>
+
+  <section class="card mb-3" aria-labelledby="sec-contact">
+    <div class="card-header"><h2 class="card-title" id="sec-contact">Contact</h2></div>
+    <div class="card-body"><div class="row">
+      {{template "input" (dict "ID" "Email1" "Label" "Email 1 (primary)" "Value" $m.Email1 "Err" $e.Email1 "Req" true "Type" "email" "Max" 254 "Auto" "off" "Hint" "Identifies the member; must be unique among current members.")}}
+      {{template "input" (dict "ID" "Email2" "Label" "Email 2" "Value" $m.Email2 "Err" $e.Email2 "Type" "email" "Max" 254 "Auto" "off")}}
+      <div class="col-12 mb-3"><div class="row g-2">
+        {{template "check" (dict "ID" "Email1Use" "Label" "Use email 1 for mailing lists" "Checked" $m.Email1Use "Err" $e.Email1Use "Col" "col-md-6")}}
+        {{template "check" (dict "ID" "Email2Use" "Label" "Use email 2 for mailing lists" "Checked" $m.Email2Use "Err" $e.Email2Use "Col" "col-md-6")}}
+      </div></div>
+      {{template "input" (dict "ID" "Phone1" "Label" "Telephone 1" "Value" $m.Phone1 "Type" "tel" "Max" 30 "Auto" "off" "Col" "col-md-4")}}
+      {{template "input" (dict "ID" "Phone2" "Label" "Telephone 2" "Value" $m.Phone2 "Type" "tel" "Max" 30 "Auto" "off" "Col" "col-md-4")}}
+      {{template "input" (dict "ID" "Phone3" "Label" "Telephone 3" "Value" $m.Phone3 "Type" "tel" "Max" 30 "Auto" "off" "Col" "col-md-4")}}
+      {{template "input" (dict "ID" "Address1" "Label" "Address line 1" "Value" $m.Address1 "Max" 100 "Auto" "off" "Col" "col-md-4")}}
+      {{template "input" (dict "ID" "Address2" "Label" "Address line 2" "Value" $m.Address2 "Max" 100 "Auto" "off" "Col" "col-md-4")}}
+      {{template "input" (dict "ID" "Address3" "Label" "Address line 3" "Value" $m.Address3 "Max" 100 "Auto" "off" "Col" "col-md-4")}}
+      {{template "input" (dict "ID" "Town" "Label" "Town" "Value" $m.Town "Max" 100 "Auto" "off")}}
+      {{template "input" (dict "ID" "Postcode" "Label" "Postcode" "Value" $m.Postcode "Err" $e.Postcode "Max" 10 "Auto" "off" "Col" "col-md-3")}}
+      {{template "check" (dict "ID" "ShareContactDetails" "Label" "Share contact details with other members" "Hint" "For the planned member directory." "Checked" $m.ShareContactDetails "Switch" true)}}
+    </div></div>
+  </section>
+
+  <section class="card mb-3" aria-labelledby="sec-ice">
+    <div class="card-header"><h2 class="card-title" id="sec-ice">Emergency contact</h2></div>
+    <div class="card-body"><div class="row">
+      {{template "input" (dict "ID" "ICEName" "Label" "Name" "Value" $m.ICEName "Max" 100 "Auto" "off")}}
+      {{template "input" (dict "ID" "ICERelation" "Label" "Relation" "Value" $m.ICERelation "Max" 100 "Auto" "off")}}
+      {{template "input" (dict "ID" "ICEPhones" "Label" "Telephone(s)" "Value" $m.ICEPhones "Max" 100 "Auto" "off")}}
+      {{template "input" (dict "ID" "ICEAddress" "Label" "Address" "Value" $m.ICEAddress "Max" 255 "Auto" "off")}}
+    </div></div>
+  </section>
 </fieldset>
 
-<fieldset {{if not ($d.CanEdit "club")}}disabled{{end}}>
-  <legend>Mailing lists and club roles</legend>
-  <div class="grid">
-  <p class="check"><label><input type="checkbox" name="CommitteeMailing" {{if $m.CommitteeMailing}}checked{{end}}> Committee mailing list</label></p>
-  <p class="check"><label><input type="checkbox" name="InstructorMailing" {{if $m.InstructorMailing}}checked{{end}}> Instructors mailing list</label></p>
-  <p class="check"><label><input type="checkbox" name="BoatHandlerMailing" {{if $m.BoatHandlerMailing}}checked{{end}}> Boat handlers mailing list</label></p>
-  <p class="check"><label><input type="checkbox" name="LifeguardMailing" {{if $m.LifeguardMailing}}checked{{end}}> Lifeguard mailing list</label></p>
-  <p class="check"><label><input type="checkbox" name="Driver" {{if $m.Driver}}checked{{end}}> Driver</label></p>
-  </div>
-  <h3>Diving qualifications</h3>
-  <div class="grid">
-  <p><label for="DiverGrades">Diver grades</label><input id="DiverGrades" name="DiverGrades" value="{{$m.DiverGrades}}" maxlength="100"></p>
-  <p><label for="InstructorGrades">Instructor grades</label><input id="InstructorGrades" name="InstructorGrades" value="{{$m.InstructorGrades}}" maxlength="100"></p>
-  <p><label for="OtherQualifications">Other qualifications</label><input id="OtherQualifications" name="OtherQualifications" value="{{$m.OtherQualifications}}" maxlength="255"></p>
-  <p><label for="PreviousClub">Previous club</label><input id="PreviousClub" name="PreviousClub" value="{{$m.PreviousClub}}" maxlength="100"></p>
-  </div>
+{{/* Group "membership": BSAC and Clidive membership. */}}
+<fieldset{{if not ($d.CanEdit "membership")}} disabled{{end}}>
+  <legend class="visually-hidden">BSAC and Clidive membership</legend>
+  <section class="card mb-3" aria-labelledby="sec-bsac">
+    <div class="card-header"><h2 class="card-title" id="sec-bsac">BSAC</h2>{{if not ($d.CanEdit "membership")}}<span class="card-actions text-secondary small">{{icon "lock"}} Read only</span>{{end}}</div>
+    <div class="card-body"><div class="row">
+      {{template "input" (dict "ID" "BSACMemberID" "Label" "Membership ID (confirmed)" "Value" $m.BSACMemberID "Max" 20 "Col" "col-md-6 col-lg-3")}}
+      {{template "input" (dict "ID" "BSACMemberIDIfKnown" "Label" "Membership ID (from member)" "Value" $m.BSACMemberIDIfKnown "Max" 20 "Col" "col-md-6 col-lg-3")}}
+      {{template "input" (dict "ID" "BSACRenewalDue" "Label" "Renewal date" "Value" (date $m.BSACRenewalDue) "Err" $e.BSACRenewalDue "Type" "date" "Col" "col-md-6 col-lg-3")}}
+      {{template "input" (dict "ID" "BSACAnnualFee" "Label" "Annual fee (£)" "Value" $m.BSACAnnualFee "Err" $e.BSACAnnualFee "Mode" "decimal" "Ph" "e.g. 57.50" "Col" "col-md-6 col-lg-3")}}
+      <div class="col-12"><div class="row g-2">
+        {{template "check" (dict "ID" "BSACAbated" "Label" "Abated" "Checked" $m.BSACAbated "Col" "col-auto")}}
+        {{template "check" (dict "ID" "BSACDirectDebit" "Label" "Direct debit" "Checked" $m.BSACDirectDebit "Col" "col-auto")}}
+      </div></div>
+    </div></div>
+  </section>
+
+  <section class="card mb-3" aria-labelledby="sec-clidive">
+    <div class="card-header"><h2 class="card-title" id="sec-clidive">Clidive membership</h2></div>
+    <div class="card-body"><div class="row">
+      <div class="col-md-4 mb-3">
+        <label class="form-label" for="TypeID">Type</label>
+        <select id="TypeID" name="TypeID" class="form-select{{if $e.TypeID}} is-invalid{{end}}"{{if $e.TypeID}} aria-invalid="true" aria-describedby="TypeID-error"{{end}}>
+          <option value="">Not set</option>
+          {{range $d.Types}}<option value="{{.ID}}" {{if and $m.TypeID.Valid (eq .ID $m.TypeID.Int64)}}selected{{end}}>{{.Name}}</option>{{end}}
+        </select>
+        {{with $e.TypeID}}<div class="invalid-feedback" id="TypeID-error">{{.}}</div>{{end}}
+      </div>
+      {{template "input" (dict "ID" "MembershipExpiry" "Label" "Expiry" "Value" (date $m.MembershipExpiry) "Err" $e.MembershipExpiry "Type" "date" "Col" "col-md-4")}}
+      <div class="col-md-4 mb-3">
+        <label class="form-label" for="JoinDate">Join date</label>
+        <input class="form-control{{if $e.JoinDate}} is-invalid{{end}}" id="JoinDate" name="JoinDate" type="date" value="{{date $m.JoinDate}}"{{if $e.JoinDate}} aria-invalid="true" aria-describedby="JoinDate-error"{{else if $m.JoinDateRaw}} aria-describedby="JoinDate-hint"{{end}}>
+        {{with $e.JoinDate}}<div class="invalid-feedback" id="JoinDate-error">{{.}}</div>{{end}}
+        {{if $m.JoinDateRaw}}<input type="hidden" name="JoinDateRaw" value="{{$m.JoinDateRaw}}"><small class="form-hint" id="JoinDate-hint">Legacy value: “{{$m.JoinDateRaw}}”</small>{{end}}
+      </div>
+    </div></div>
+  </section>
 </fieldset>
 
-<fieldset {{if not ($d.CanEdit "membership")}}disabled{{end}}>
-  <legend>Membership</legend>
-  <h3>BSAC</h3>
-  <div class="grid">
-  <p><label for="BSACMemberID">Membership ID (confirmed)</label><input id="BSACMemberID" name="BSACMemberID" value="{{$m.BSACMemberID}}" maxlength="20"></p>
-  <p><label for="BSACMemberIDIfKnown">Membership ID (if known, provided by member)</label><input id="BSACMemberIDIfKnown" name="BSACMemberIDIfKnown" value="{{$m.BSACMemberIDIfKnown}}" maxlength="20"></p>
-  <p><label for="BSACRenewalDue">Renewal date</label><input id="BSACRenewalDue" name="BSACRenewalDue" type="date" value="{{date $m.BSACRenewalDue}}"></p>
-  <p><label for="BSACAnnualFee">Annual fee (£)</label><input id="BSACAnnualFee" name="BSACAnnualFee" inputmode="decimal" value="{{$m.BSACAnnualFee}}" size="10" {{with $e.BSACAnnualFee}}aria-invalid="true"{{end}}></p>
-  <p class="check"><label><input type="checkbox" name="BSACAbated" {{if $m.BSACAbated}}checked{{end}}> Abated</label></p>
-  <p class="check"><label><input type="checkbox" name="BSACDirectDebit" {{if $m.BSACDirectDebit}}checked{{end}}> Direct debit</label></p>
-  </div>
-  <h3>Clidive</h3>
-  <div class="grid">
-  <p><label for="JoinDate">Join date</label><input id="JoinDate" name="JoinDate" type="date" value="{{date $m.JoinDate}}">
-    {{if $m.JoinDateRaw}}<input type="hidden" name="JoinDateRaw" value="{{$m.JoinDateRaw}}"><span class="hint">Legacy value: “{{$m.JoinDateRaw}}”</span>{{end}}</p>
-  <p><label for="TypeID">Type</label><select id="TypeID" name="TypeID">
-    <option value=""></option>
-    {{range $d.Types}}<option value="{{.ID}}" {{if and $m.TypeID.Valid (eq .ID $m.TypeID.Int64)}}selected{{end}}>{{.Name}}</option>{{end}}
-  </select></p>
-  <p><label for="MembershipExpiry">Expiry</label><input id="MembershipExpiry" name="MembershipExpiry" type="date" value="{{date $m.MembershipExpiry}}"></p>
-  <p><label for="Query">Query</label><input id="Query" name="Query" value="{{$m.Query}}" maxlength="255"></p>
-  <p class="wide"><label for="Notes">Notes</label><textarea id="Notes" name="Notes" rows="3" maxlength="1000">{{$m.Notes}}</textarea></p>
-  </div>
+{{/* Group "club": qualifications and mailing lists. */}}
+<fieldset{{if not ($d.CanEdit "club")}} disabled{{end}}>
+  <legend class="visually-hidden">Qualifications and mailing lists</legend>
+  <section class="card mb-3" aria-labelledby="sec-quals">
+    <div class="card-header"><h2 class="card-title" id="sec-quals">Qualifications</h2>{{if not ($d.CanEdit "club")}}<span class="card-actions text-secondary small">{{icon "lock"}} Read only</span>{{end}}</div>
+    <div class="card-body"><div class="row">
+      {{template "input" (dict "ID" "DiverGrades" "Label" "Diver grades" "Value" $m.DiverGrades "Max" 100)}}
+      {{template "input" (dict "ID" "InstructorGrades" "Label" "Instructor grades" "Value" $m.InstructorGrades "Max" 100)}}
+      {{template "input" (dict "ID" "OtherQualifications" "Label" "Other qualifications" "Value" $m.OtherQualifications "Max" 255)}}
+      {{template "input" (dict "ID" "PreviousClub" "Label" "Previous club" "Value" $m.PreviousClub "Max" 100)}}
+    </div></div>
+  </section>
+
+  <section class="card mb-3" aria-labelledby="sec-lists">
+    <div class="card-header"><h2 class="card-title" id="sec-lists">Mailing lists and club roles</h2></div>
+    <div class="card-body"><div class="row g-2">
+      {{template "check" (dict "ID" "CommitteeMailing" "Label" "Committee" "Checked" $m.CommitteeMailing "Switch" true "Col" "col-sm-6 col-lg-4")}}
+      {{template "check" (dict "ID" "InstructorMailing" "Label" "Instructors" "Checked" $m.InstructorMailing "Switch" true "Col" "col-sm-6 col-lg-4")}}
+      {{template "check" (dict "ID" "BoatHandlerMailing" "Label" "Boat handlers" "Checked" $m.BoatHandlerMailing "Switch" true "Col" "col-sm-6 col-lg-4")}}
+      {{template "check" (dict "ID" "LifeguardMailing" "Label" "Lifeguards" "Checked" $m.LifeguardMailing "Switch" true "Col" "col-sm-6 col-lg-4")}}
+      {{template "check" (dict "ID" "Driver" "Label" "Driver" "Checked" $m.Driver "Switch" true "Col" "col-sm-6 col-lg-4")}}
+    </div></div>
+  </section>
 </fieldset>
 
-{{if or $d.New $d.CanEditAny}}<p><button type="submit">{{if $d.New}}Create member{{else}}Save{{end}}</button>
-<a href="{{url "/admin/members"}}">Back to the list</a></p>{{end}}
+{{/* Query and notes belong to group "membership". */}}
+<fieldset{{if not ($d.CanEdit "membership")}} disabled{{end}}>
+  <legend class="visually-hidden">Notes</legend>
+  <section class="card mb-3" aria-labelledby="sec-notes">
+    <div class="card-header"><h2 class="card-title" id="sec-notes">Notes</h2></div>
+    <div class="card-body"><div class="row">
+      {{template "input" (dict "ID" "Query" "Label" "Query" "Value" $m.Query "Max" 255 "Col" "col-12" "Hint" "Something to follow up with this member.")}}
+      <div class="col-12">
+        <label class="form-label" for="Notes">Notes</label>
+        <textarea class="form-control" id="Notes" name="Notes" rows="4" maxlength="1000">{{$m.Notes}}</textarea>
+      </div>
+    </div></div>
+  </section>
+</fieldset>
+
+{{if or $d.New $d.CanEditAny}}
+<div class="card form-actions">
+  <div class="card-body d-flex flex-wrap gap-2 align-items-center">
+    <button type="submit" class="btn btn-primary">{{icon "device-floppy"}} {{if $d.New}}Create member{{else}}Save changes{{end}}</button>
+    <a class="btn btn-link" href="{{url "/admin/members"}}">Cancel</a>
+    {{if not $d.New}}<span class="ms-auto small text-secondary">Only the sections you may edit are saved.</span>{{end}}
+  </div>
+</div>
+{{end}}
 </form>
+</div>
 
 {{if not $d.New}}
-<section id="payments" aria-labelledby="payments-h">
-<h2 id="payments-h">Payments</h2>
-<table class="list">
-  <thead><tr><th scope="col">Date</th><th scope="col">Amount</th><th scope="col">Method</th><th scope="col">Note</th><th scope="col">Recorded by</th>{{if permit .P "payments.record"}}<th scope="col"><span class="visually-hidden">Actions</span></th>{{end}}</tr></thead>
-  <tbody>
-  {{range $d.Payments}}
-  <tr><td>{{.PaidOn.Format "02/01/2006"}}</td><td>{{.Amount}}</td><td>{{.Method}}</td><td>{{.Note}}</td><td>{{.CreatedBy}}{{if eq .Source "bulk"}} (bulk){{end}}</td>
-  {{if permit $.P "payments.record"}}<td><form method="post" action="{{url "/admin/members/"}}{{$m.ID}}/payments/{{.ID}}/delete"><input type="hidden" name="csrf_token" value="{{$.CSRF}}"><button type="submit" class="link">Delete</button></form></td>{{end}}</tr>
-  {{else}}
-  <tr><td colspan="6">No payments recorded.</td></tr>
-  {{end}}
-  </tbody>
-</table>
-{{if permit .P "payments.record"}}
-<form method="post" action="{{url "/admin/members/"}}{{$m.ID}}/payments" class="inline">
-  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-  <p><label for="PaidOn">Date</label><input id="PaidOn" name="PaidOn" type="date" value="{{$d.Today}}" required></p>
-  <p><label for="Amount">Amount (£, optional)</label><input id="Amount" name="Amount" inputmode="decimal" size="8"></p>
-  <p><label for="Method">Method (optional)</label><select id="Method" name="Method">{{range $d.Methods}}<option value="{{.}}">{{.}}</option>{{end}}</select></p>
-  <p><label for="Note">Note</label><input id="Note" name="Note" maxlength="255"></p>
-  <p><button type="submit">Record payment</button></p>
-</form>
-{{end}}
-</section>
+<div class="col-xl-4">
+  <section class="card mb-3" aria-labelledby="sec-summary">
+    <div class="card-header"><h2 class="card-title" id="sec-summary">Summary</h2></div>
+    <div class="card-body">
+      <dl class="datagrid">
+        <div class="datagrid-item"><dt class="datagrid-title">Clidive type</dt><dd class="datagrid-content">{{template "typebadge" $m}}</dd></div>
+        <div class="datagrid-item"><dt class="datagrid-title">Expiry</dt><dd class="datagrid-content">{{or (ukdate $m.MembershipExpiry) "—"}}</dd></div>
+        <div class="datagrid-item"><dt class="datagrid-title">Last paid</dt><dd class="datagrid-content">{{or (ukdate $m.LastPaid) "—"}}</dd></div>
+        <div class="datagrid-item"><dt class="datagrid-title">BSAC renewal</dt><dd class="datagrid-content">{{or (ukdate $m.BSACRenewalDue) "—"}}</dd></div>
+      </dl>
+    </div>
+  </section>
 
-{{if permit .P "members.archive"}}
-<section aria-labelledby="archive-h">
-<h2 id="archive-h">{{if $m.Archived}}Restore{{else}}Archive{{end}}</h2>
-{{if $m.Archived}}
-<form method="post" action="{{url "/admin/members/"}}{{$m.ID}}/restore"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><button type="submit">Restore member</button></form>
-{{else}}
-<p class="hint">Archiving hides the member from the current list and stops mailing-list emails. It can be undone.</p>
-<form method="post" action="{{url "/admin/members/"}}{{$m.ID}}/archive"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><button type="submit" class="danger">Archive member</button></form>
-{{end}}
-</section>
-{{end}}
+  <section class="card mb-3" id="payments" aria-labelledby="payments-h">
+    <div class="card-header"><h2 class="card-title" id="payments-h">Payments</h2></div>
+    <div class="table-responsive">
+      <table class="table table-vcenter card-table table-sm">
+        <thead><tr><th scope="col">Date</th><th scope="col" class="text-end">Amount</th><th scope="col">Method</th>{{if permit .P "payments.record"}}<th scope="col"><span class="visually-hidden">Actions</span></th>{{end}}</tr></thead>
+        <tbody>
+        {{range $d.Payments}}
+        <tr>
+          <td class="text-nowrap num">{{.PaidOn.Format "02/01/2006"}}
+            <div class="small text-secondary">{{.CreatedBy}}{{if eq .Source "bulk"}} (bulk){{end}}{{with .Note}} · {{.}}{{end}}</div></td>
+          <td class="text-end num">{{if .Amount.Valid}}£{{.Amount}}{{else}}<span class="text-secondary">—</span>{{end}}</td>
+          <td>{{.Method}}</td>
+          {{if permit $.P "payments.record"}}<td class="text-end">
+            <form method="post" action="{{url "/admin/members/"}}{{$m.ID}}/payments/{{.ID}}/delete"><input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+            <button type="submit" class="btn btn-sm btn-ghost-danger btn-icon" aria-label="Delete payment of {{.PaidOn.Format "02/01/2006"}}" title="Delete">{{icon "trash"}}</button></form></td>{{end}}
+        </tr>
+        {{else}}
+        <tr><td colspan="4" class="text-secondary">No payments recorded.</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{if permit .P "payments.record"}}
+    <div class="card-footer">
+      <h3 class="h4">Record a payment</h3>
+      <form method="post" action="{{url "/admin/members/"}}{{$m.ID}}/payments" class="row g-2">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <div class="col-6"><label class="form-label" for="PaidOn">Date</label><input class="form-control" id="PaidOn" name="PaidOn" type="date" value="{{$d.Today}}" required></div>
+        <div class="col-6"><label class="form-label" for="Amount">Amount (£)</label><input class="form-control" id="Amount" name="Amount" inputmode="decimal" placeholder="optional"></div>
+        <div class="col-6"><label class="form-label" for="Method">Method</label><select class="form-select" id="Method" name="Method">{{range $d.Methods}}<option value="{{.}}">{{if .}}{{.}}{{else}}Not stated{{end}}</option>{{end}}</select></div>
+        <div class="col-6"><label class="form-label" for="Note">Note</label><input class="form-control" id="Note" name="Note" maxlength="255"></div>
+        <div class="col-12"><button type="submit" class="btn btn-outline-primary w-100">{{icon "cash"}} Record payment</button></div>
+      </form>
+    </div>
+    {{end}}
+  </section>
+
+  {{if permit .P "members.archive"}}
+  <section class="card mb-3" aria-labelledby="archive-h">
+    <div class="card-header"><h2 class="card-title" id="archive-h">{{if $m.Archived}}Restore{{else}}Archive{{end}}</h2></div>
+    <div class="card-body">
+    {{if $m.Archived}}
+      <p class="text-secondary">Restoring puts the member back on the current list and mailing lists.</p>
+      <form method="post" action="{{url "/admin/members/"}}{{$m.ID}}/restore"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><button type="submit" class="btn btn-outline-success">{{icon "restore"}} Restore member</button></form>
+    {{else}}
+      <p class="text-secondary">Archiving hides the member from the current list and stops mailing-list emails. It can be undone.</p>
+      <form method="post" action="{{url "/admin/members/"}}{{$m.ID}}/archive"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><button type="submit" class="btn btn-outline-danger">{{icon "archive"}} Archive member</button></form>
+    {{end}}
+    </div>
+  </section>
+  {{end}}
+</div>
 
 {{if $d.Audit}}
-<section aria-labelledby="audit-h">
-<h2 id="audit-h">History</h2>
-<details><summary>Show the last {{len $d.Audit}} change(s)</summary>
-<table class="list audit">
-  <thead><tr><th scope="col">When (UTC)</th><th scope="col">Who</th><th scope="col">What</th><th scope="col">Changes</th></tr></thead>
-  <tbody>{{range $d.Audit}}<tr><td>{{.At.Format "2006-01-02 15:04"}}</td><td>{{.Actor}}</td><td>{{.Action}}</td><td><code>{{.Changes}}</code></td></tr>{{end}}</tbody>
-</table>
-</details>
-</section>
+<div class="col-12">
+  <section class="card" aria-labelledby="audit-h">
+    <div class="card-header"><h2 class="card-title" id="audit-h">{{icon "history"}} History</h2></div>
+    <details class="audit">
+      <summary class="card-body py-2">Show the last {{len $d.Audit}} change(s)</summary>
+      <div class="table-responsive">
+        <table class="table table-sm card-table">
+          <thead><tr><th scope="col">When (UTC)</th><th scope="col">Who</th><th scope="col">What</th><th scope="col">Changes</th></tr></thead>
+          <tbody>{{range $d.Audit}}<tr><td class="text-nowrap num">{{.At.Format "2006-01-02 15:04"}}</td><td>{{.Actor}}</td><td><span class="badge bg-azure-lt">{{.Action}}</span></td><td><code class="audit-changes">{{.Changes}}</code></td></tr>{{end}}</tbody>
+        </table>
+      </div>
+    </details>
+  </section>
+</div>
 {{end}}
 {{end}}
+</div>
 {{end}}
