@@ -15,6 +15,7 @@ Infrastructure lives in [`clidive410/infra`](https://github.com/clidive410/infra
 - `GET /auth/verify` lets Caddy `forward_auth` tell the WordPress site
   whether the visitor is a signed-in club member.
 - `migrate-legacy` imports the legacy `membership` tables idempotently.
+- `seed-dev` fills an empty scratch database with invented members for UI work.
 
 `net/http` with [`gorilla/mux`](https://github.com/gorilla/mux) for routing
 (method matching, an `/admin` subrouter whose middleware enforces sign-in and
@@ -35,7 +36,8 @@ internal/members/       domain model, field groups, diffs, MariaDB repository, a
 internal/auth/          roles and permissions, argon2id, sessions, CSRF, login tokens
 internal/legacy/        legacy field mapping and idempotent importer
 internal/export/        CSV export and email-list formatting
-internal/web/           handlers, middleware, templates and stylesheet (embedded)
+internal/web/           handlers, middleware, templates, Tabler CSS and overrides (embedded)
+internal/devseed/       invented demo members for `seed-dev`
 internal/integration/   MariaDB integration tests (opt-in)
 ```
 
@@ -55,7 +57,17 @@ go run ./cmd/membership user set-password -email you@example.org -role admin   #
 go run ./cmd/membership serve
 ```
 
-Then open <http://localhost:8080/> and sign in. To run the whole stack in
+Then open <http://localhost:8080/> and sign in.
+
+For UI work without real member data, use a scratch database and invented
+members (`seed-dev` refuses to run on a database that already has members):
+
+```sh
+docker compose exec db mariadb -uroot -pdevroot -e "CREATE DATABASE membership_ui CHARACTER SET utf8mb4; GRANT ALL ON membership_ui.* TO 'membership'@'%'"
+export DB_DSN='membership:devpassword@tcp(127.0.0.1:3307)/membership_ui'
+go run ./cmd/membership migrate
+go run ./cmd/membership seed-dev -n 40      # deterministic; -seed picks another set
+``` To run the whole stack in
 containers: `docker compose --profile app up --build`.
 
 ### Tests
@@ -147,6 +159,10 @@ membership migrate-legacy -legacy-dsn 'user:pw@tcp(legacy-host:3306)/ironmonger'
   parsed (`Y-M-D`, `DD/MM/YY`, `DD.MM.YY`). Anything it cannot parse is kept in
   `join_date_raw` and shown on the member page. Emails are trimmed and
   lower-cased.
+- Text is repaired on import: the legacy tables are declared latin1 but
+  hold UTF-8 bytes, which arrive double-encoded (`Ã©` for `é`, `â€“` for an
+  en dash). A value whose characters all map back to latin1/cp1252 bytes
+  that form valid UTF-8 is decoded again; correct text is left alone.
 - Idempotent: members are matched on `legacy_member_id` and updated in
   place, and the legacy payment row follows `last_paid`. Each run is one
   transaction and records `legacy.import` audit entries. Re-running after
