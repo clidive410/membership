@@ -54,6 +54,18 @@ type AuthStore interface {
 	RequestLoginLink(ctx context.Context, email string, ttl time.Duration) (*auth.LoginLink, error)
 	LoginWithToken(ctx context.Context, token string) (*auth.Principal, error)
 	VerifySession(ctx context.Context, token string) (*auth.SessionStatus, error)
+
+	// Password reset (committee and password users).
+	RequestPasswordReset(ctx context.Context, email string, ttl time.Duration) (*auth.LoginLink, error)
+	PasswordResetEmail(ctx context.Context, token string) (string, error)
+	ResetPassword(ctx context.Context, token, password string) (*auth.Principal, error)
+
+	// Portal access management (admins).
+	ListUsers(ctx context.Context) ([]auth.User, error)
+	GetUser(ctx context.Context, id int64) (*auth.User, error)
+	UserForMember(ctx context.Context, memberID int64, email string) (*auth.User, error)
+	SetAccess(ctx context.Context, a members.Actor, req auth.AccessRequest) (*auth.AccessResult, error)
+	InviteUser(ctx context.Context, a members.Actor, req auth.InviteRequest) (*auth.Invite, error)
 }
 
 // Options configures a Server.
@@ -91,7 +103,9 @@ type Server struct {
 	limiter *limiter // failed password logins
 	// Sign-in link requests, counted whether or not the email matches.
 	linkByIP, linkByEmail *limiter
-	pages                 map[string]*pageTemplate
+	// Password reset requests, with the same limits.
+	resetByIP, resetByEmail *limiter
+	pages                   map[string]*pageTemplate
 	// Background sign-in link work (lookup, token, email), so that the
 	// response time does not reveal whether an address belongs to a member.
 	bg      sync.WaitGroup
@@ -120,12 +134,14 @@ func New(opt Options) *Server {
 		opt.PublicURL = &url.URL{Scheme: "http", Host: "localhost:8080", Path: opt.BasePath}
 	}
 	s := &Server{
-		opt:         opt,
-		csrf:        auth.CSRF{Secret: opt.SessionSecret},
-		limiter:     newLimiter(10, 15*time.Minute),
-		linkByIP:    newLimiter(linkRequestsPerIP, 15*time.Minute),
-		linkByEmail: newLimiter(linkRequestsPerEmail, 15*time.Minute),
-		sendSem:     make(chan struct{}, maxPendingLinks),
+		opt:          opt,
+		csrf:         auth.CSRF{Secret: opt.SessionSecret},
+		limiter:      newLimiter(10, 15*time.Minute),
+		linkByIP:     newLimiter(linkRequestsPerIP, 15*time.Minute),
+		linkByEmail:  newLimiter(linkRequestsPerEmail, 15*time.Minute),
+		resetByIP:    newLimiter(linkRequestsPerIP, 15*time.Minute),
+		resetByEmail: newLimiter(linkRequestsPerEmail, 15*time.Minute),
+		sendSem:      make(chan struct{}, maxPendingLinks),
 	}
 	s.pages = mustParseTemplates(opt.BasePath)
 	return s
@@ -154,6 +170,10 @@ func (s *Server) Handler() http.Handler {
 	// GET only: HEAD would spend the single-use token without signing in.
 	r.HandleFunc("/login/verify", s.handleLoginVerify).Methods(http.MethodGet)
 	r.HandleFunc("/logout", s.handleLogout).Methods(http.MethodPost)
+	get("/password/forgot", s.handleForgotForm)
+	r.HandleFunc("/password/forgot", s.handleForgot).Methods(http.MethodPost)
+	get("/password/reset", s.handleResetForm) // does not spend the token
+	r.HandleFunc("/password/reset", s.handleReset).Methods(http.MethodPost)
 	get("/", s.handleHome)
 
 	// Member pages: any signed-in user; the handler shows their own record.
@@ -185,6 +205,10 @@ func (s *Server) Handler() http.Handler {
 	route("GET", "/export.csv", auth.PermExport, s.handleExportCSV)
 	route("GET", "/emails", auth.PermEmailLists, s.handleEmailLists)
 	route("GET", "/emails.txt", auth.PermEmailLists, s.handleEmailListText)
+	route("POST", "/members/{id}/access", auth.PermManageUsers, s.handleMemberAccess)
+	route("GET", "/users", auth.PermManageUsers, s.handleUserList)
+	route("POST", "/users", auth.PermManageUsers, s.handleUserInvite)
+	route("POST", "/users/{uid}/access", auth.PermManageUsers, s.handleUserAccess)
 	admin.Use(s.requireSignIn, s.requirePermission(perms))
 
 	// Extension point: member self-service editing (POST /me) will be

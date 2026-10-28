@@ -267,10 +267,14 @@ type fakeAuth struct {
 	lookups  int // LookupSession calls
 	verifies int // VerifySession calls
 	lastTTL  time.Duration
+	// access management
+	accessCalls int
+	audit       []string
 }
 
 type fakeUser struct {
 	password string
+	disabled bool
 	p        auth.Principal
 }
 
@@ -278,6 +282,7 @@ type fakeToken struct {
 	userID  int64
 	expires time.Time
 	used    bool
+	purpose string
 }
 
 func newFakeAuth() *fakeAuth {
@@ -330,7 +335,7 @@ func (f *fakeAuth) Authenticate(_ context.Context, email, password string) (*aut
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	u, ok := f.users[email]
-	if !ok || u.password != password {
+	if !ok || u.password == "" || u.password != password || u.disabled {
 		return nil, auth.ErrInvalidCredentials
 	}
 	return forMethod(u.p, auth.LoginMethodPassword), nil
@@ -405,14 +410,14 @@ func (f *fakeAuth) RequestLoginLink(_ context.Context, email string, ttl time.Du
 	}
 	f.users[email] = u
 	tok := auth.NewToken()
-	f.tokens[tok] = &fakeToken{userID: u.p.UserID, expires: time.Now().Add(ttl)}
+	f.tokens[tok] = &fakeToken{userID: u.p.UserID, expires: time.Now().Add(ttl), purpose: auth.PurposeMagicLink}
 	return &auth.LoginLink{Token: tok, UserID: u.p.UserID, MemberID: ids[0]}, nil
 }
 
 func (f *fakeAuth) LoginWithToken(_ context.Context, token string) (*auth.Principal, error) {
 	f.mu.Lock()
 	t, ok := f.tokens[token]
-	if !ok || t.used || time.Now().After(t.expires) {
+	if !ok || t.used || time.Now().After(t.expires) || t.purpose != auth.PurposeMagicLink {
 		f.mu.Unlock()
 		return nil, auth.ErrInvalidToken
 	}
@@ -438,4 +443,197 @@ func (f *fakeAuth) VerifySession(_ context.Context, token string) (*auth.Session
 		st.MemberID, st.Expiry = m.ID, m.MembershipExpiry
 	}
 	return st, nil
+}
+
+// token adds a token directly (tests of expired, used or wrong-purpose links).
+func (f *fakeAuth) token(email, purpose string, ttl time.Duration, used bool) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	tok := auth.NewToken()
+	f.tokens[tok] = &fakeToken{userID: f.users[email].p.UserID, expires: time.Now().Add(ttl), used: used, purpose: purpose}
+	return tok
+}
+
+// sessionsOf counts the sessions of a user.
+func (f *fakeAuth) sessionsOf(userID int64) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, p := range f.sessions {
+		if p.UserID == userID {
+			n++
+		}
+	}
+	return n
+}
+
+func (f *fakeAuth) dropSessions(userID int64) {
+	for t, p := range f.sessions {
+		if p.UserID == userID {
+			delete(f.sessions, t)
+		}
+	}
+}
+
+func (f *fakeAuth) RequestPasswordReset(_ context.Context, email string, ttl time.Duration) (*auth.LoginLink, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	u, ok := f.users[members.NormalizeEmail(email)]
+	if !ok || u.disabled || (u.password == "" && !u.p.IsCommittee()) {
+		return nil, auth.ErrNoResetUser
+	}
+	tok := auth.NewToken()
+	f.tokens[tok] = &fakeToken{userID: u.p.UserID, expires: time.Now().Add(ttl), purpose: auth.PurposePasswordReset}
+	return &auth.LoginLink{Token: tok, UserID: u.p.UserID, MemberID: u.p.MemberID}, nil
+}
+
+func (f *fakeAuth) resetToken(token string) (*fakeToken, string, error) {
+	t, ok := f.tokens[token]
+	if !ok || t.used || time.Now().After(t.expires) || t.purpose != auth.PurposePasswordReset {
+		return nil, "", auth.ErrInvalidToken
+	}
+	email, u, ok := f.userByID(t.userID)
+	if !ok || u.disabled {
+		return nil, "", auth.ErrInvalidToken
+	}
+	return t, email, nil
+}
+
+func (f *fakeAuth) PasswordResetEmail(_ context.Context, token string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	_, email, err := f.resetToken(token)
+	return email, err
+}
+
+func (f *fakeAuth) ResetPassword(_ context.Context, token, password string) (*auth.Principal, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(password) < auth.MinPasswordLength {
+		return nil, auth.ErrWeakPassword
+	}
+	t, email, err := f.resetToken(token)
+	if err != nil {
+		return nil, err
+	}
+	t.used = true
+	u := f.users[email]
+	u.password = password
+	f.users[email] = u
+	f.dropSessions(u.p.UserID)
+	return forMethod(u.p, auth.LoginMethodPassword), nil
+}
+
+func (f *fakeAuth) toUser(email string, u fakeUser) auth.User {
+	name := ""
+	if f.fm != nil && u.p.MemberID != 0 {
+		f.fm.mu.Lock()
+		if m, ok := f.fm.members[u.p.MemberID]; ok {
+			name = m.FullName()
+		}
+		f.fm.mu.Unlock()
+	}
+	return auth.User{MemberName: name, ID: u.p.UserID, Email: email, MemberID: sql.NullInt64{Int64: u.p.MemberID, Valid: u.p.MemberID != 0},
+		HasPassword: u.password != "", Disabled: u.disabled, Roles: slices.Clone(u.p.Roles)}
+}
+
+func (f *fakeAuth) ListUsers(context.Context) ([]auth.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []auth.User
+	for e, u := range f.users {
+		out = append(out, f.toUser(e, u))
+	}
+	slices.SortFunc(out, func(a, b auth.User) int { return strings.Compare(a.Email, b.Email) })
+	return out, nil
+}
+
+func (f *fakeAuth) GetUser(_ context.Context, id int64) (*auth.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	e, u, ok := f.userByID(id)
+	if !ok {
+		return nil, members.ErrNotFound
+	}
+	out := f.toUser(e, u)
+	return &out, nil
+}
+
+func (f *fakeAuth) UserForMember(_ context.Context, memberID int64, email string) (*auth.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for e, u := range f.users {
+		if memberID != 0 && u.p.MemberID == memberID {
+			out := f.toUser(e, u)
+			return &out, nil
+		}
+	}
+	if u, ok := f.users[members.NormalizeEmail(email)]; ok && email != "" {
+		out := f.toUser(members.NormalizeEmail(email), u)
+		return &out, nil
+	}
+	return nil, nil
+}
+
+// SetAccess mirrors auth.Store.SetAccess (member linking is simplified:
+// the requested member id is linked when the login has none).
+func (f *fakeAuth) SetAccess(_ context.Context, a members.Actor, req auth.AccessRequest) (*auth.AccessResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.accessCalls++
+	email := members.NormalizeEmail(req.Email)
+	u, ok := f.users[email]
+	if !ok {
+		if req.Access == auth.AccessNone {
+			return &auth.AccessResult{From: auth.AccessNone, To: auth.AccessNone}, nil
+		}
+		u = fakeUser{p: auth.Principal{UserID: int64(len(f.users) + 1), Email: email}}
+	}
+	if a.UserID == u.p.UserID && req.Access != auth.AccessAdmin {
+		return nil, auth.ErrSelfLockout
+	}
+	res := &auth.AccessResult{UserID: u.p.UserID, Created: !ok, From: auth.AccessOf(u.p.Roles, u.disabled), To: req.Access}
+	if req.Access == auth.AccessNone {
+		u.p.Roles, u.disabled = nil, true
+		f.dropSessions(u.p.UserID)
+	} else {
+		if u.p.MemberID == 0 {
+			u.p.MemberID = req.MemberID
+		}
+		var roles []auth.Role
+		if u.p.HasRole(auth.RoleMember) || u.p.MemberID != 0 {
+			roles = append(roles, auth.RoleMember)
+		}
+		if req.Access != auth.AccessMember {
+			roles = append(roles, auth.Role(req.Access))
+		}
+		u.p.Roles, u.disabled = roles, false
+	}
+	f.users[email] = u
+	f.audit = append(f.audit, a.Label+" "+auth.ActionAccess+" "+string(req.Access))
+	return res, nil
+}
+
+func (f *fakeAuth) InviteUser(_ context.Context, a members.Actor, req auth.InviteRequest) (*auth.Invite, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	email := members.NormalizeEmail(req.Email)
+	u, ok := f.users[email]
+	if !ok {
+		u = fakeUser{p: auth.Principal{UserID: int64(len(f.users) + 1), Email: email}}
+	}
+	if u.disabled {
+		return nil, auth.ErrUserDisabled
+	}
+	if req.Role != "" && !u.p.HasRole(req.Role) {
+		u.p.Roles = append(slices.Clone(u.p.Roles), req.Role)
+	}
+	if len(u.p.Roles) == 0 {
+		return nil, auth.ErrNoRole
+	}
+	f.users[email] = u
+	tok := auth.NewToken()
+	f.tokens[tok] = &fakeToken{userID: u.p.UserID, expires: time.Now().Add(req.TTL), purpose: auth.PurposePasswordReset}
+	f.audit = append(f.audit, a.Label+" "+auth.ActionInvite)
+	return &auth.Invite{Token: tok, UserID: u.p.UserID, Email: email, Created: !ok, MemberID: u.p.MemberID, Roles: slices.Clone(u.p.Roles)}, nil
 }

@@ -185,6 +185,27 @@
     </div>
   </section>
 
+  {{with $d.Access}}
+  <section class="card mb-3" id="access" aria-labelledby="access-h">
+    <div class="card-header"><h2 class="card-title" id="access-h">Portal access</h2>{{if not .CanManage}}<span class="card-actions text-secondary small">{{icon "lock"}} Read only</span>{{end}}</div>
+    <div class="card-body">
+      {{if .User}}
+      <dl class="datagrid mb-3">
+        <div class="datagrid-item"><dt class="datagrid-title">Login</dt><dd class="datagrid-content">{{.User.Email}}</dd></div>
+        <div class="datagrid-item"><dt class="datagrid-title">Access</dt><dd class="datagrid-content">{{accessName .Current}}</dd></div>
+        <div class="datagrid-item"><dt class="datagrid-title">Roles</dt><dd class="datagrid-content">{{range .User.Roles}}<span class="badge bg-secondary-lt me-1">{{.}}</span>{{else}}none{{end}}</dd></div>
+        <div class="datagrid-item"><dt class="datagrid-title">Status</dt><dd class="datagrid-content">{{if .User.Disabled}}<span class="badge bg-red-lt">disabled</span>{{else}}<span class="badge bg-green-lt">enabled</span>{{end}}</dd></div>
+        <div class="datagrid-item"><dt class="datagrid-title">Password</dt><dd class="datagrid-content">{{if .User.HasPassword}}set{{else}}not set{{end}}</dd></div>
+        <div class="datagrid-item"><dt class="datagrid-title">Last sign-in</dt><dd class="datagrid-content">{{or (dateTime .User.LastLoginAt) "never"}}</dd></div>
+      </dl>
+      {{else}}
+      <p class="text-secondary">No login yet{{with .Email}} for {{.}}{{end}}.{{if .CanManage}} Choosing a role creates one.{{end}}</p>
+      {{end}}
+      {{if .CanManage}}{{if .Email}}{{template "accessform" (dict "V" . "CSRF" $.CSRF "ID" "access-level")}}{{else}}<p class="text-secondary mb-0">Add a primary email to give this member a login.</p>{{end}}{{end}}
+    </div>
+  </section>
+  {{end}}
+
   <section class="card mb-3" id="payments" aria-labelledby="payments-h">
     <div class="card-header"><h2 class="card-title" id="payments-h">Payments</h2></div>
     <div class="table-responsive">

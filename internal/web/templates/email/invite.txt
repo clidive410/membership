@@ -1,0 +1,15 @@
+Hello,
+
+You've been given access to the Clidive members portal ({{.Access}}).
+Your login is {{.Email}}. Use this link to set your password:
+
+{{.Link}}
+
+The link works once and expires in {{.Days}} days. Once your password is
+set, sign in at {{.LoginURL}} with "Committee: sign in with a password".
+If the link has expired, use "Forgotten your password?" on that page.
+
+If you were not expecting this, you can ignore this email or tell us at
+membership@clidive.org.
+
+Clidive BSAC 410

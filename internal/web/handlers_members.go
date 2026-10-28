@@ -88,6 +88,7 @@ type memberData struct {
 	Methods  []string
 	Today    string
 	Now      time.Time
+	Access   *accessView // portal access card (committee viewers)
 }
 
 func (d memberData) CanEdit(g string) bool { return d.Editable[members.FieldGroup(g)] }
@@ -112,6 +113,15 @@ func (s *Server) memberPage(w http.ResponseWriter, r *http.Request, status int, 
 				s.serverError(w, r, err)
 				return
 			}
+		}
+		if p.IsCommittee() {
+			u, err := s.opt.Auth.UserForMember(ctx, d.M.ID, d.M.Email1)
+			if err != nil {
+				s.serverError(w, r, err)
+				return
+			}
+			v := newAccessView(p, u, d.M.Email1, s.url("/admin/members/"+strconv.FormatInt(d.M.ID, 10)+"/access"))
+			d.Access = &v
 		}
 	}
 	d.Editable = map[members.FieldGroup]bool{}

@@ -24,6 +24,7 @@
             {{if permit .P "members.create"}}{{template "navitem" (dict "Href" (url "/admin/members/new") "Icon" "user-plus" "Label" "New member" "Active" (eq .Nav "new"))}}{{end}}
             {{if permit .P "payments.record"}}{{template "navitem" (dict "Href" (url "/admin/payments") "Icon" "cash" "Label" "Payments" "Active" (eq .Nav "payments"))}}{{end}}
             {{if permit .P "members.emaillists"}}{{template "navitem" (dict "Href" (url "/admin/emails") "Icon" "mail" "Label" "Email lists" "Active" (eq .Nav "emails"))}}{{end}}
+            {{if permit .P "users.manage"}}{{template "navitem" (dict "Href" (url "/admin/users") "Icon" "lock" "Label" "Portal access" "Active" (eq .Nav "users"))}}{{end}}
             {{if .P.MemberID}}{{template "navitem" (dict "Href" (url "/me") "Icon" "scuba-mask" "Label" "My membership" "Active" (eq .Nav "me"))}}{{end}}
           </ul>
         </nav>

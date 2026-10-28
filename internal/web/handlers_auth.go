@@ -150,24 +150,34 @@ func (s *Server) handleLoginLink(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, http.StatusOK, "linksent", "Check your email", nil)
 }
 
-// sendLoginLink looks up the member, issues a token and emails the link,
-// in the background. Outcomes are only logged, by user id.
-func (s *Server) sendLoginLink(email, next, reqID string) {
+// background runs fn outside the request (sign-in link and password reset
+// lookups and emails), so the response time does not reveal whether an
+// address has an account. At most maxPendingLinks run at once; beyond that
+// the work is dropped and logged.
+func (s *Server) background(what, reqID string, fn func(ctx context.Context)) {
 	select {
 	case s.sendSem <- struct{}{}:
 	default:
-		s.opt.Log.Warn("login link dropped: too many requests in flight", "request_id", reqID)
+		s.opt.Log.Warn(what+" dropped: too many requests in flight", "request_id", reqID)
 		return
 	}
 	s.bg.Go(func() {
 		defer func() { <-s.sendSem }()
 		defer func() {
 			if v := recover(); v != nil {
-				s.opt.Log.Error("panic sending login link", "value", v, "request_id", reqID)
+				s.opt.Log.Error("panic in background "+what, "value", v, "request_id", reqID)
 			}
 		}()
 		ctx, cancel := context.WithTimeout(context.Background(), linkSendTimeout)
 		defer cancel()
+		fn(ctx)
+	})
+}
+
+// sendLoginLink looks up the member, issues a token and emails the link,
+// in the background. Outcomes are only logged, by user id.
+func (s *Server) sendLoginLink(email, next, reqID string) {
+	s.background("login link", reqID, func(ctx context.Context) {
 		link, err := s.opt.Auth.RequestLoginLink(ctx, email, loginLinkTTL)
 		switch {
 		case errors.Is(err, auth.ErrNoMember):
