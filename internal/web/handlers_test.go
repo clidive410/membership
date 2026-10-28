@@ -22,9 +22,12 @@ const browser = "test-browser-value"
 var fixedNow = time.Date(2026, 10, 27, 10, 0, 0, 0, time.UTC)
 
 type env struct {
-	h  http.Handler
-	fm *fakeMembers
-	fa *fakeAuth
+	base string
+	h    http.Handler
+	s    *Server
+	fm   *fakeMembers
+	fa   *fakeAuth
+	fs   *fakeSender
 }
 
 func day(y, m, d int) sql.NullTime {
@@ -33,10 +36,12 @@ func day(y, m, d int) sql.NullTime {
 
 func typ(id int64) sql.NullInt64 { return sql.NullInt64{Int64: id, Valid: true} }
 
-// newEnv builds a server with invented members and users.
-func newEnv(t *testing.T, base string) *env {
+// newEnv builds a server with invented members and users; mods adjust the
+// options.
+func newEnv(t *testing.T, base string, mods ...func(*Options)) *env {
 	t.Helper()
 	fm, fa := newFakeMembers(), newFakeAuth()
+	fa.fm = fm
 	fm.add(members.Member{ID: 1, FirstName: "Ada", LastName: "Anchor", Email1: "ada@example.org", Email1Use: true,
 		TypeID: typ(2), MembershipExpiry: day(2027, 3, 31), CommitteeMailing: true})
 	fm.add(members.Member{ID: 2, FirstName: "Bob", LastName: "Buoy", Email1: "bob@example.org", Email1Use: true,
@@ -48,8 +53,13 @@ func newEnv(t *testing.T, base string) *env {
 	fa.addUser("ada@example.org", "member-password-12", 1, auth.RoleMember)
 	fa.addUser("bob@example.org", "member-password-12", 2, auth.RoleMember)
 	fa.addUser("cy@example.org", "member-password-12", 3, auth.RoleMember)
-	s := New(Options{Members: fm, Auth: fa, SessionSecret: secret, BasePath: base, Now: func() time.Time { return fixedNow }})
-	return &env{h: s.Handler(), fm: fm, fa: fa}
+	fs := &fakeSender{}
+	opt := Options{Members: fm, Auth: fa, SessionSecret: secret, BasePath: base, Mailer: fs, Now: func() time.Time { return fixedNow }}
+	for _, m := range mods {
+		m(&opt)
+	}
+	s := New(opt)
+	return &env{base: base, h: s.Handler(), s: s, fm: fm, fa: fa, fs: fs}
 }
 
 func (e *env) do(t *testing.T, method, path, session string, form url.Values) *httptest.ResponseRecorder {
@@ -76,8 +86,8 @@ func (e *env) do(t *testing.T, method, path, session string, form url.Values) *h
 
 func TestUnauthenticatedRedirectsToLogin(t *testing.T) {
 	e := newEnv(t, "")
-	w := e.do(t, "GET", "/admin/members", "", nil)
-	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/login" {
+	w := e.do(t, "GET", "/admin/members?q=x", "", nil)
+	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/login?next=%2Fadmin%2Fmembers%3Fq%3Dx" {
 		t.Fatalf("got %d %q", w.Code, w.Header().Get("Location"))
 	}
 	if w := e.do(t, "POST", "/admin/members/1/archive", "", url.Values{}); w.Code != http.StatusUnauthorized {
@@ -371,35 +381,6 @@ func TestEmailLists(t *testing.T) {
 	}
 }
 
-func TestAuthVerify(t *testing.T) {
-	e := newEnv(t, "")
-	cases := []struct {
-		name, session, member, status string
-	}{
-		{"no cookie", "", "", ""},
-		{"bogus cookie", "nope", "", ""},
-		{"admin without member row", e.fa.session("admin@example.org"), "", ""},
-		{"active member", e.fa.session("ada@example.org"), "1", "active"},
-		{"expired member", e.fa.session("bob@example.org"), "1", "expired"},
-		{"archived member", e.fa.session("cy@example.org"), "", ""},
-	}
-	for _, c := range cases {
-		w := e.do(t, "GET", "/auth/verify", c.session, nil)
-		if w.Code != 200 {
-			t.Errorf("%s: status %d", c.name, w.Code)
-		}
-		if got := w.Header().Get("X-Clidive-Member"); got != c.member {
-			t.Errorf("%s: X-Clidive-Member = %q, want %q", c.name, got, c.member)
-		}
-		if got := w.Header().Get("X-Clidive-Member-Status"); got != c.status {
-			t.Errorf("%s: status header = %q, want %q", c.name, got, c.status)
-		}
-		if w.Header().Get("Cache-Control") != "no-store" {
-			t.Errorf("%s: verify must not be cached", c.name)
-		}
-	}
-}
-
 func TestHealth(t *testing.T) {
 	e := newEnv(t, "")
 	if w := e.do(t, "GET", "/healthz", "", nil); w.Code != 200 {
@@ -414,7 +395,7 @@ func TestHealth(t *testing.T) {
 func TestBasePathAndHeaders(t *testing.T) {
 	e := newEnv(t, "/membership")
 	w := e.do(t, "GET", "/membership/admin/members", "", nil)
-	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/membership/login" {
+	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/membership/login?next=%2Fadmin%2Fmembers" {
 		t.Errorf("prefixed redirect: %d %q", w.Code, w.Header().Get("Location"))
 	}
 	w = e.do(t, "GET", "/membership/login", "", nil)

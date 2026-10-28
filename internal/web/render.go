@@ -19,7 +19,7 @@ import (
 
 type pageTemplate struct{ t *template.Template }
 
-var pageNames = []string{"login", "members", "member", "payments", "emails", "error"}
+var pageNames = []string{"login", "linksent", "me", "members", "member", "payments", "emails", "error"}
 
 // typeColors maps the legacy membership type ids to badge colours; unknown
 // types fall back to the default badge.
@@ -147,6 +147,7 @@ func mustParseTemplates(base string) map[string]*pageTemplate {
 		"permit": func(p *auth.Principal, perm string) bool { return p.Can(auth.Permission(perm)) },
 		"icon":   icon,
 		"dict":   dict,
+		"list":   func(v ...string) []string { return v },
 		// typeColor picks a Tabler badge colour for a membership type.
 		"typeColor": func(id sql.NullInt64) string {
 			if !id.Valid {
@@ -191,8 +192,8 @@ type page struct {
 	FormError string
 }
 
-// Shell reports whether to show the admin layout (sidebar, top bar). Pages
-// for visitors without admin access are shown centred instead.
+// Shell reports whether to show the admin layout (sidebar, top bar). Other
+// signed-in users (members) get a slim top bar; visitors a centred page.
 func (p page) Shell() bool { return p.P.Can(auth.PermViewMembers) }
 
 // flashes are fixed messages selected by a ?flash= key, so no user input is
@@ -209,7 +210,7 @@ var flashes = map[string]string{
 }
 
 // navFor maps a page template to its sidebar entry.
-var navFor = map[string]string{"members": "members", "member": "members", "payments": "payments", "emails": "emails"}
+var navFor = map[string]string{"members": "members", "member": "members", "payments": "payments", "emails": "emails", "me": "me"}
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name, title string, data any) {
 	pg := page{
