@@ -10,9 +10,10 @@ import (
 )
 
 // handleExportCSV replicates fulllistexport.php: ?status=all exports every
-// member including archived ones, otherwise the current list (which, as in
-// the legacy app, includes Lapsed members). The other statuses (e.g.
-// ?status=expired) work too. Sorted by last name.
+// member including archived ones; the default is the current list (not
+// archived, not expired; Lapsed included as in the legacy app). The other
+// statuses (e.g. ?status=expired, ?status=notarchived) work too. Sorted by
+// last name.
 func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	status := members.ParseStatus(r.URL.Query().Get("status"))
 	ms, err := s.opt.Members.ListMembers(r.Context(), members.Filter{Status: status, Sort: "last_name", Today: s.opt.Now()})
