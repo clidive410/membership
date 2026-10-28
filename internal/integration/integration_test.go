@@ -592,3 +592,155 @@ func TestMigrationLock(t *testing.T) {
 		t.Errorf("lock not released: %v (%d)", err, free)
 	}
 }
+
+// TestPasswordResetInviteAccess covers password resets, invitations and
+// access changes against MariaDB.
+func TestPasswordResetInviteAccess(t *testing.T) {
+	f := setup(t)
+	f.importOnce(t)
+	as := auth.NewStore(f.app)
+	cli := members.Actor{Label: "cli"}
+	count := func(q string, args ...any) (n int) {
+		if err := f.app.QueryRowContext(f.ctx, q, args...).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	// Invite a committee member with no member record: created without a
+	// password, role granted, nothing linked.
+	inv, err := as.InviteUser(f.ctx, cli, auth.InviteRequest{Email: " Chair@Example.org ", Role: auth.RoleAdmin, TTL: 7 * 24 * time.Hour})
+	if err != nil || !inv.Created || inv.MemberID != 0 || inv.Note == "" || inv.Email != "chair@example.org" {
+		t.Fatalf("invite: %+v %v", inv, err)
+	}
+	if n := count("SELECT COUNT(*) FROM users WHERE id = ? AND password_hash IS NULL", inv.UserID); n != 1 {
+		t.Error("invited user must have no password")
+	}
+	if n := count("SELECT COUNT(*) FROM login_tokens WHERE user_id = ? AND purpose = ? AND expires_at > UTC_TIMESTAMP() + INTERVAL 6 DAY",
+		inv.UserID, auth.PurposePasswordReset); n != 1 {
+		t.Error("invite token must be a 7-day password_reset token")
+	}
+	// Idempotent: a second run re-issues a token for the same user.
+	inv2, err := as.InviteUser(f.ctx, cli, auth.InviteRequest{Email: "chair@example.org", Role: auth.RoleAdmin, TTL: time.Hour})
+	if err != nil || inv2.Created || inv2.UserID != inv.UserID || len(inv2.Roles) != 1 {
+		t.Fatalf("re-invite: %+v %v", inv2, err)
+	}
+	// The invite token is not a sign-in link, and a sign-in link cannot reset.
+	if _, err := as.LoginWithToken(f.ctx, inv.Token); !errors.Is(err, auth.ErrInvalidToken) {
+		t.Errorf("reset token accepted as sign-in link: %v", err)
+	}
+	ml, _ := as.CreateLoginToken(f.ctx, inv.UserID, time.Hour)
+	if _, err := as.ResetPassword(f.ctx, ml, "a-long-new-password"); !errors.Is(err, auth.ErrInvalidToken) {
+		t.Errorf("sign-in link accepted for a reset: %v", err)
+	}
+	if email, err := as.PasswordResetEmail(f.ctx, inv.Token); err != nil || email != "chair@example.org" {
+		t.Errorf("check: %q %v", email, err)
+	}
+	// Weak passwords leave the token unspent.
+	if _, err := as.ResetPassword(f.ctx, inv.Token, "short"); !errors.Is(err, auth.ErrWeakPassword) {
+		t.Errorf("weak: %v", err)
+	}
+	old, _ := as.CreateSession(f.ctx, inv.UserID, auth.LoginMethodPassword, time.Hour)
+	p, err := as.ResetPassword(f.ctx, inv.Token, "a-long-new-password")
+	if err != nil || p.UserID != inv.UserID || !p.HasRole(auth.RoleAdmin) || p.AuthMethod != auth.LoginMethodPassword {
+		t.Fatalf("reset: %+v %v", p, err)
+	}
+	if lp, _ := as.LookupSession(f.ctx, old); lp != nil {
+		t.Error("reset must revoke existing sessions")
+	}
+	if _, err := as.ResetPassword(f.ctx, inv2.Token, "another-long-password"); !errors.Is(err, auth.ErrInvalidToken) {
+		t.Errorf("other outstanding reset tokens must be spent: %v", err)
+	}
+	if _, err := as.Authenticate(f.ctx, "chair@example.org", "a-long-new-password"); err != nil {
+		t.Errorf("new password: %v", err)
+	}
+	if n := count("SELECT COUNT(*) FROM audit_log WHERE action = ? AND entity_id = ?", auth.ActionPasswordReset, inv.UserID); n != 1 {
+		t.Errorf("reset audit entries: %d", n)
+	}
+
+	// Forgotten password: committee or password users only, never members.
+	if _, err := as.RequestPasswordReset(f.ctx, "nobody@example.org", 30*time.Minute); !errors.Is(err, auth.ErrNoResetUser) {
+		t.Errorf("unknown: %v", err)
+	}
+	if _, err := as.RequestLoginLink(f.ctx, "cara@example.org", time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := as.RequestPasswordReset(f.ctx, "cara@example.org", 30*time.Minute); !errors.Is(err, auth.ErrNoResetUser) {
+		t.Errorf("member without a password: %v", err)
+	}
+	rl, err := as.RequestPasswordReset(f.ctx, "CHAIR@example.org", 30*time.Minute)
+	if err != nil || rl.UserID != inv.UserID {
+		t.Fatalf("reset request: %+v %v", rl, err)
+	}
+	expired, _ := as.InviteUser(f.ctx, cli, auth.InviteRequest{Email: "chair@example.org", TTL: -time.Minute})
+	if _, err := as.ResetPassword(f.ctx, expired.Token, "another-long-password"); !errors.Is(err, auth.ErrInvalidToken) {
+		t.Errorf("expired token: %v", err)
+	}
+
+	// Invite links a member automatically by primary email; -member-id
+	// conflicts are refused.
+	ai, err := as.InviteUser(f.ctx, cli, auth.InviteRequest{Email: "alice@example.org", Role: auth.RoleMembershipManager, TTL: time.Hour})
+	if err != nil || ai.MemberID != 101 || ai.Note != "" {
+		t.Fatalf("alice invite: %+v %v", ai, err)
+	}
+	if _, err := as.InviteUser(f.ctx, cli, auth.InviteRequest{Email: "alice@example.org", MemberID: 103, TTL: time.Hour}); !errors.Is(err, auth.ErrLinkConflict) {
+		t.Errorf("relink: %v", err)
+	}
+	if _, err := as.InviteUser(f.ctx, cli, auth.InviteRequest{Email: "x@example.org", Role: auth.RoleAdmin, MemberID: 102, TTL: time.Hour}); err == nil {
+		t.Error("archived member linked")
+	}
+
+	// Access levels.
+	chair := members.Actor{UserID: inv.UserID, Label: "chair@example.org"}
+	res, err := as.SetAccess(f.ctx, chair, auth.AccessRequest{Email: "alice@example.org", Access: auth.AccessAdmin})
+	if err != nil || res.From != auth.AccessMembershipManager {
+		t.Fatalf("set admin: %+v %v", res, err)
+	}
+	u, _ := as.GetUser(f.ctx, ai.UserID)
+	if u.Access() != auth.AccessAdmin || len(u.Roles) != 2 || u.MemberName != "Alice Example" { // admin + member
+		t.Errorf("alice: %+v", u)
+	}
+	sess, _ := as.CreateSession(f.ctx, ai.UserID, auth.LoginMethodPassword, time.Hour)
+	if _, err := as.SetAccess(f.ctx, chair, auth.AccessRequest{Email: "alice@example.org", Access: auth.AccessNone}); err != nil {
+		t.Fatal(err)
+	}
+	u, _ = as.GetUser(f.ctx, ai.UserID)
+	if !u.Disabled || len(u.Roles) != 0 || u.Access() != auth.AccessNone {
+		t.Errorf("revoked: %+v", u)
+	}
+	if lp, _ := as.LookupSession(f.ctx, sess); lp != nil {
+		t.Error("revoke must end sessions")
+	}
+	if _, err := as.InviteUser(f.ctx, cli, auth.InviteRequest{Email: "alice@example.org", TTL: time.Hour}); !errors.Is(err, auth.ErrUserDisabled) {
+		t.Errorf("invite disabled: %v", err)
+	}
+	if _, err := as.SetAccess(f.ctx, chair, auth.AccessRequest{Email: "alice@example.org", Access: auth.AccessMember}); err != nil {
+		t.Fatal(err)
+	}
+	if u, _ = as.GetUser(f.ctx, ai.UserID); u.Disabled || u.Access() != auth.AccessMember {
+		t.Errorf("re-enabled: %+v", u)
+	}
+	if mu, _ := as.UserForMember(f.ctx, 101, "alice@example.org"); mu == nil || mu.ID != ai.UserID {
+		t.Errorf("UserForMember: %+v", mu)
+	}
+	if mu, err := as.UserForMember(f.ctx, 999, "none@example.org"); mu != nil || err != nil {
+		t.Errorf("UserForMember none: %+v %v", mu, err)
+	}
+	// Self-lockout.
+	for _, a := range []auth.Access{auth.AccessNone, auth.AccessMember, auth.AccessMembershipManager} {
+		if _, err := as.SetAccess(f.ctx, chair, auth.AccessRequest{Email: "chair@example.org", Access: a}); !errors.Is(err, auth.ErrSelfLockout) {
+			t.Errorf("self %s: %v", a, err)
+		}
+	}
+	// none for an address without a login creates nothing.
+	if r, err := as.SetAccess(f.ctx, chair, auth.AccessRequest{Email: "ghost@example.org", Access: auth.AccessNone}); err != nil || r.UserID != 0 {
+		t.Errorf("none for no login: %+v %v", r, err)
+	}
+	if n := count("SELECT COUNT(*) FROM audit_log WHERE action = ? AND actor_user_id = ?", auth.ActionAccess, inv.UserID); n != 3 {
+		t.Errorf("access audit entries: %d", n)
+	}
+	users, err := as.ListUsers(f.ctx)
+	if err != nil || len(users) < 3 {
+		t.Errorf("list: %d %v", len(users), err)
+	}
+}

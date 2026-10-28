@@ -45,12 +45,13 @@ const (
 	PermExport          Permission = "members.export"
 	PermEmailLists      Permission = "members.emaillists"
 	PermViewAudit       Permission = "audit.view"
+	PermManageUsers     Permission = "users.manage"       // portal logins and roles
 	PermEditOwnPersonal Permission = "self.edit.personal" // future member self-service
 )
 
 var rolePermissions = map[Role][]Permission{
 	RoleAdmin: {PermViewMembers, PermCreateMembers, PermArchiveMembers, PermEditPersonal, PermEditClub,
-		PermEditMembership, PermRecordPayments, PermExport, PermEmailLists, PermViewAudit, PermEditOwnPersonal},
+		PermEditMembership, PermRecordPayments, PermExport, PermEmailLists, PermViewAudit, PermManageUsers, PermEditOwnPersonal},
 	RoleMembershipManager: {PermViewMembers, PermEditMembership, PermRecordPayments, PermViewAudit},
 	RoleMember:            {PermEditOwnPersonal},
 }
