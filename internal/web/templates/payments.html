@@ -1,7 +1,7 @@
 {{define "pretitle"}}<div class="page-pretitle">Payments</div>{{end}}
 {{define "content"}}
 {{$d := .Data}}
-<p class="text-secondary">Record a payment (and optionally a renewal) for every selected member of one membership type at once. Archived members are not shown.</p>
+<p class="text-secondary">Record a payment (and optionally a renewal) for every selected member of one membership type at once. Expired members are listed so that renewals can be recorded; archived members are not shown.</p>
 {{with $d.Error}}<div class="alert alert-danger" role="alert"><div class="alert-icon">{{icon "alert-triangle"}}</div><div>{{.}}</div></div>{{end}}
 <form method="post" action="{{url "/admin/payments"}}">
 <input type="hidden" name="csrf_token" value="{{.CSRF}}">

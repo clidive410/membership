@@ -170,11 +170,15 @@ func TestMemberListFiltersAndEscaping(t *testing.T) {
 	e.fm.add(members.Member{ID: 9, FirstName: "<script>x</script>", LastName: "Zed", Email1: "z@example.org"})
 	tok := e.fa.session("admin@example.org")
 	body := e.do(t, "GET", "/admin/members", tok, nil).Body.String()
-	if !strings.Contains(body, "Anchor") || !strings.Contains(body, "Buoy") || strings.Contains(body, "Current</a>") {
-		t.Error("default list should show current, non-archived members only")
+	if !strings.Contains(body, "Anchor") || strings.Contains(body, "Buoy") || strings.Contains(body, "Current</a>") {
+		t.Error("default list should show current members only: not archived, not expired")
 	}
 	if strings.Contains(body, "<script>x") || !strings.Contains(body, "&lt;script&gt;") {
 		t.Error("member names must be HTML-escaped")
+	}
+	body = e.do(t, "GET", "/admin/members?status=notarchived", tok, nil).Body.String()
+	if !strings.Contains(body, "Anchor") || !strings.Contains(body, "Buoy") || strings.Contains(body, "Current</a>") {
+		t.Error("notarchived should list current and expired members")
 	}
 	if !strings.Contains(body, `data-status="expired"`) {
 		t.Error("expired tag missing for a member whose expiry is in the past")
@@ -182,6 +186,10 @@ func TestMemberListFiltersAndEscaping(t *testing.T) {
 	body = e.do(t, "GET", "/admin/members?status=all&q=current", tok, nil).Body.String()
 	if !strings.Contains(body, "Current") || strings.Contains(body, "Anchor") {
 		t.Error("search across all statuses failed")
+	}
+	body = e.do(t, "GET", "/admin/members?status=expired", tok, nil).Body.String()
+	if !strings.Contains(body, "Buoy") || strings.Contains(body, "Anchor") || strings.Contains(body, "Current</a>") {
+		t.Error("expired filter should list only non-archived members whose Clidive expiry has passed")
 	}
 }
 

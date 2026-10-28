@@ -284,13 +284,32 @@ func TestStoresAgainstMariaDB(t *testing.T) {
 	as := auth.NewStore(f.app)
 	actor := members.Actor{Label: "tester@example.org"}
 
-	cur, err := store.ListMembers(f.ctx, members.Filter{})
+	cur, err := store.ListMembers(f.ctx, members.Filter{Status: members.StatusNotArchived})
 	if err != nil || len(cur) != 2 {
-		t.Fatalf("current list: %d %v", len(cur), err)
+		t.Fatalf("not-archived list: %d %v", len(cur), err)
+	}
+	if def, _ := store.ListMembers(f.ctx, members.Filter{Today: time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC)}); len(def) != len(cur) {
+		t.Errorf("current list with nothing expired yet should equal the not-archived list: %d vs %d", len(def), len(cur))
 	}
 	all, _ := store.ListMembers(f.ctx, members.Filter{Status: members.StatusAll, Sort: "last_paid", Desc: true})
 	if len(all) != 3 || all[0].ID != 101 {
 		t.Errorf("all list sorted by last paid: %+v", all)
+	}
+	withExpiry := 0
+	for _, m := range cur {
+		if m.MembershipExpiry.Valid {
+			withExpiry++
+		}
+	}
+	expired, _ := store.ListMembers(f.ctx, members.Filter{Status: members.StatusExpired, Today: time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)})
+	if withExpiry == 0 || len(expired) != withExpiry {
+		t.Errorf("expired list far in the future should hold every current member with an expiry date: %d vs %d", len(expired), withExpiry)
+	}
+	if expired, _ = store.ListMembers(f.ctx, members.Filter{Status: members.StatusExpired, Today: time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC)}); len(expired) != 0 {
+		t.Errorf("expired list far in the past should be empty, got %d", len(expired))
+	}
+	if def, _ := store.ListMembers(f.ctx, members.Filter{Today: time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)}); len(def) != len(cur)-withExpiry {
+		t.Errorf("current list far in the future should hold only members without an expiry date: %d vs %d", len(def), len(cur)-withExpiry)
 	}
 	found, _ := store.ListMembers(f.ctx, members.Filter{Query: "odd 100%", Status: members.StatusAll})
 	if len(found) != 0 {

@@ -76,7 +76,7 @@ func (s *Server) bulkPage(w http.ResponseWriter, r *http.Request, status int, ty
 		sort = "last_name"
 	}
 	desc := q.Get("dir") == "desc"
-	ms, err := s.opt.Members.ListMembers(r.Context(), members.Filter{TypeID: typeID, Status: members.StatusCurrent, Sort: sort, Desc: desc})
+	ms, err := s.opt.Members.ListMembers(r.Context(), members.Filter{TypeID: typeID, Status: members.StatusNotArchived, Sort: sort, Desc: desc})
 	if err != nil {
 		s.serverError(w, r, err)
 		return
