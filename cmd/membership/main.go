@@ -29,6 +29,7 @@ import (
 	"github.com/clidive410/membership/internal/db"
 	"github.com/clidive410/membership/internal/devseed"
 	"github.com/clidive410/membership/internal/legacy"
+	"github.com/clidive410/membership/internal/mail"
 	"github.com/clidive410/membership/internal/members"
 	"github.com/clidive410/membership/internal/web"
 )
@@ -157,17 +158,25 @@ func serve(ctx context.Context, args []string) error {
 		}
 	}
 	memberStore, authStore := members.NewStore(conn), auth.NewStore(conn)
+	mailer, err := newMailer(cfg, log)
+	if err != nil {
+		return err
+	}
 
 	srv := web.New(web.Options{
-		Members:        memberStore,
-		Auth:           authStore,
-		Log:            log,
-		SessionSecret:  cfg.SessionSecret,
-		BasePath:       cfg.BasePath(),
-		CookieSecure:   cfg.CookieSecure,
-		CookieDomain:   cfg.CookieDomain,
-		SessionTTL:     cfg.SessionTTL,
-		TrustedProxies: cfg.TrustedProxies,
+		Members:          memberStore,
+		Auth:             authStore,
+		Log:              log,
+		SessionSecret:    cfg.SessionSecret,
+		BasePath:         cfg.BasePath(),
+		CookieSecure:     cfg.CookieSecure,
+		CookieDomain:     cfg.CookieDomain,
+		SessionTTL:       cfg.SessionTTL,
+		MemberSessionTTL: cfg.MemberSessionTTL,
+		PublicURL:        cfg.BaseURL,
+		LoginReturnURL:   cfg.LoginReturnURL,
+		Mailer:           mailer,
+		TrustedProxies:   cfg.TrustedProxies,
 	})
 	httpSrv := &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -211,11 +220,36 @@ func serve(ctx context.Context, args []string) error {
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("graceful shutdown: %w", err)
 	}
+	if err := srv.Wait(shutdownCtx); err != nil {
+		log.Warn("stopped before all sign-in emails were sent", "err", err)
+	}
 	if err := <-errc; !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	log.Info("stopped")
 	return nil
+}
+
+// newMailer picks how sign-in links are delivered: SMTP when SMTP_HOST is
+// set; otherwise the log in development (LOG_FORMAT=text), and in
+// production a sender that fails every send with a clear error.
+func newMailer(cfg *config.Config, log *slog.Logger) (mail.Sender, error) {
+	from, err := mail.ParseFrom(cfg.MailFrom)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case cfg.SMTPHost != "":
+		log.Info("email via SMTP", "host", cfg.SMTPHost, "port", cfg.SMTPPort, "from", from.Address)
+		return &mail.SMTP{Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUsername, Password: cfg.SMTPPassword,
+			From: from, Log: log}, nil
+	case cfg.Development():
+		log.Warn("SMTP_HOST is not set: sign-in emails are written to this log instead of being sent (development only)")
+		return mail.LogSender{Log: log}, nil
+	default:
+		log.Error("SMTP_HOST is not set: members cannot be emailed sign-in links")
+		return mail.Unconfigured{}, nil
+	}
 }
 
 func migrateCmd(ctx context.Context) error {

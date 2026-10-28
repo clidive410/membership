@@ -2,11 +2,10 @@
 // hashing, sessions and CSRF tokens.
 //
 // Authentication is deliberately separate from the member record: a user is
-// a login identity keyed by email which may link to a member row. Admins
-// sign in with a password today; the users.password_hash column is nullable
-// and the login_tokens table exists so that email magic links (and later
-// TOTP) can be added for members without schema changes. See
-// LoginMethodMagicLink and Store.CreateLoginToken for the extension point.
+// a login identity keyed by email which may link to a member row. Committee
+// users sign in with a password. Members sign in with a single-use link
+// emailed to their primary address (Store.RequestLoginLink and
+// Store.LoginWithToken); such sessions carry the member role only.
 package auth
 
 import (
@@ -22,7 +21,7 @@ type Role string
 const (
 	RoleAdmin             Role = "admin"              // committee
 	RoleMembershipManager Role = "membership_manager" // type/expiry/BSAC/payments
-	RoleMember            Role = "member"             // future self-service
+	RoleMember            Role = "member"             // signed-in club member (own record, read-only)
 )
 
 // AllRoles lists the known roles.
@@ -62,6 +61,9 @@ type Principal struct {
 	Email    string
 	MemberID int64 // 0 when the user has no member row (e.g. some admins)
 	Roles    []Role
+	// AuthMethod is how the session was started (LoginMethodPassword or
+	// LoginMethodMagicLink).
+	AuthMethod string
 }
 
 // Can reports whether any of the principal's roles grants p.
@@ -75,6 +77,11 @@ func (p *Principal) Can(perm Permission) bool {
 		}
 	}
 	return false
+}
+
+// IsCommittee reports whether the principal has a committee role.
+func (p *Principal) IsCommittee() bool {
+	return p.HasRole(RoleAdmin) || p.HasRole(RoleMembershipManager)
 }
 
 // HasRole reports whether the principal has role r.

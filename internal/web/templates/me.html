@@ -1,0 +1,104 @@
+{{define "heading"}}My membership{{end}}
+
+{{/* item: one read-only value. Keys: T (title), V (value; empty shows a dash). */}}
+{{define "item"}}<div class="datagrid-item"><dt class="datagrid-title">{{.T}}</dt><dd class="datagrid-content">{{or .V "—"}}</dd></div>{{end}}
+{{define "flag"}}<div class="datagrid-item"><dt class="datagrid-title">{{.T}}</dt><dd class="datagrid-content">{{if .V}}Yes{{else}}No{{end}}</dd></div>{{end}}
+
+{{define "content"}}
+{{$m := .Data.M}}{{$now := .Data.Now}}{{$expired := $m.Expired $now}}
+{{if not .Shell}}<div class="me-header mb-3">
+  <div class="page-pretitle">Member #{{$m.ID}}</div>
+  <h1 class="page-title">My membership</h1>
+</div>{{end}}
+{{template "flash" .}}
+{{if $expired}}<div class="alert alert-danger" role="status"><div class="alert-icon">{{icon "alert-triangle"}}</div><div>Your Clidive membership expired on {{ukdate $m.MembershipExpiry}}. To renew, email <a href="mailto:membership@clidive.org">membership@clidive.org</a>.</div></div>{{end}}
+<div class="alert alert-info" role="note"><div class="alert-icon">{{icon "info-circle"}}</div><div>This is the record the club holds for you. To change anything, email <a href="mailto:membership@clidive.org">membership@clidive.org</a>; editing your own details here is planned for later.</div></div>
+
+<div class="row row-cards">
+  <div class="col-lg-6">
+    <section class="card h-100" aria-labelledby="me-membership">
+      <div class="card-header"><h2 class="card-title" id="me-membership">Membership</h2></div>
+      <div class="card-body"><dl class="datagrid">
+        {{template "item" (dict "T" "Name" "V" $m.FullName)}}
+        <div class="datagrid-item"><dt class="datagrid-title">Membership type</dt><dd class="datagrid-content">{{template "typebadge" $m}}</dd></div>
+        <div class="datagrid-item"><dt class="datagrid-title">Clidive expiry</dt><dd class="datagrid-content">{{if $m.MembershipExpiry.Valid}}{{ukdate $m.MembershipExpiry}}
+          {{if $expired}}<span class="badge badge-type type-expired" data-status="expired">expired</span>{{else}}<span class="badge badge-type type-current">current</span>{{end}}{{else}}—{{end}}</dd></div>
+        {{template "item" (dict "T" "Joined" "V" (ukdate $m.JoinDate))}}
+        {{template "item" (dict "T" "Last payment" "V" (ukdate $m.LastPaid))}}
+        <div class="datagrid-item"><dt class="datagrid-title">BSAC number</dt><dd class="datagrid-content">{{if $m.BSACMemberID}}{{$m.BSACMemberID}}{{else if $m.BSACMemberIDIfKnown}}{{$m.BSACMemberIDIfKnown}} <span class="text-secondary">(not yet confirmed)</span>{{else}}—{{end}}</dd></div>
+        {{template "item" (dict "T" "BSAC renewal date" "V" (ukdate $m.BSACRenewalDue))}}
+      </dl></div>
+    </section>
+  </div>
+
+  <div class="col-lg-6">
+    <section class="card h-100" aria-labelledby="me-contact">
+      <div class="card-header"><h2 class="card-title" id="me-contact">Contact details</h2></div>
+      <div class="card-body"><dl class="datagrid">
+        <div class="datagrid-item"><dt class="datagrid-title">Email 1</dt><dd class="datagrid-content text-break">{{or $m.Email1 "—"}} <small class="d-block text-secondary">Used to sign in</small></dd></div>
+        <div class="datagrid-item"><dt class="datagrid-title">Email 2</dt><dd class="datagrid-content text-break">{{or $m.Email2 "—"}}</dd></div>
+        <div class="datagrid-item"><dt class="datagrid-title">Telephone</dt><dd class="datagrid-content">{{if or $m.Phone1 $m.Phone2 $m.Phone3}}{{range $i, $p := (list $m.Phone1 $m.Phone2 $m.Phone3)}}{{if $p}}<span class="d-block">{{$p}}</span>{{end}}{{end}}{{else}}—{{end}}</dd></div>
+        <div class="datagrid-item"><dt class="datagrid-title">Address</dt><dd class="datagrid-content">{{if or $m.Address1 $m.Address2 $m.Address3 $m.Town $m.Postcode}}{{range (list $m.Address1 $m.Address2 $m.Address3 $m.Town $m.Postcode)}}{{if .}}<span class="d-block">{{.}}</span>{{end}}{{end}}{{else}}—{{end}}</dd></div>
+        {{template "flag" (dict "T" "Shown to other members" "V" $m.ShareContactDetails)}}
+      </dl></div>
+    </section>
+  </div>
+
+  <div class="col-lg-6">
+    <section class="card h-100" aria-labelledby="me-ice">
+      <div class="card-header"><h2 class="card-title" id="me-ice">Emergency contact</h2></div>
+      <div class="card-body"><dl class="datagrid">
+        {{template "item" (dict "T" "Name" "V" $m.ICEName)}}
+        {{template "item" (dict "T" "Relation" "V" $m.ICERelation)}}
+        {{template "item" (dict "T" "Telephone(s)" "V" $m.ICEPhones)}}
+        {{template "item" (dict "T" "Address" "V" $m.ICEAddress)}}
+      </dl></div>
+    </section>
+  </div>
+
+  <div class="col-lg-6">
+    <section class="card h-100" aria-labelledby="me-quals">
+      <div class="card-header"><h2 class="card-title" id="me-quals">Qualifications</h2></div>
+      <div class="card-body"><dl class="datagrid">
+        {{template "item" (dict "T" "Diver grades" "V" $m.DiverGrades)}}
+        {{template "item" (dict "T" "Instructor grades" "V" $m.InstructorGrades)}}
+        {{template "item" (dict "T" "Other qualifications" "V" $m.OtherQualifications)}}
+        {{template "item" (dict "T" "Previous club" "V" $m.PreviousClub)}}
+      </dl></div>
+    </section>
+  </div>
+
+  <div class="col-12">
+    <section class="card" aria-labelledby="me-lists">
+      <div class="card-header"><h2 class="card-title" id="me-lists">Mailing lists and club roles</h2></div>
+      <div class="card-body"><dl class="datagrid">
+        {{template "flag" (dict "T" "Club emails to email 1" "V" $m.Email1Use)}}
+        {{template "flag" (dict "T" "Club emails to email 2" "V" $m.Email2Use)}}
+        {{template "flag" (dict "T" "Committee" "V" $m.CommitteeMailing)}}
+        {{template "flag" (dict "T" "Instructors" "V" $m.InstructorMailing)}}
+        {{template "flag" (dict "T" "Boat handlers" "V" $m.BoatHandlerMailing)}}
+        {{template "flag" (dict "T" "Lifeguards" "V" $m.LifeguardMailing)}}
+        {{template "flag" (dict "T" "Driver" "V" $m.Driver)}}
+      </dl></div>
+    </section>
+  </div>
+
+  <div class="col-12">
+    <section class="card" aria-labelledby="me-payments">
+      <div class="card-header"><h2 class="card-title" id="me-payments">Payment history</h2></div>
+      {{if .Data.Payments}}
+      <div class="table-responsive">
+        <table class="table table-vcenter card-table">
+          <thead><tr><th scope="col">Date</th><th scope="col" class="text-end">Amount</th><th scope="col">Method</th></tr></thead>
+          <tbody>{{range .Data.Payments}}<tr>
+            <td class="num">{{.PaidOn.Format "02/01/2006"}}</td>
+            <td class="num text-end">{{with .Amount.String}}£{{.}}{{else}}<span class="text-secondary">—</span>{{end}}</td>
+            <td>{{or .Method "—"}}</td>
+          </tr>{{end}}</tbody>
+        </table>
+      </div>
+      {{else}}<div class="card-body text-secondary">No payments recorded.</div>{{end}}
+    </section>
+  </div>
+</div>
+{{end}}

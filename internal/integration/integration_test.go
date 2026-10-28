@@ -405,6 +405,126 @@ func TestStoresAgainstMariaDB(t *testing.T) {
 	}
 }
 
+// TestMemberLoginLinks covers the magic-link sign-in against MariaDB.
+func TestMemberLoginLinks(t *testing.T) {
+	f := setup(t)
+	f.importOnce(t)
+	store := members.NewStore(f.app)
+	as := auth.NewStore(f.app)
+	actor := members.Actor{Label: "tester@example.org"}
+	countUsers := func() (n int) {
+		f.app.QueryRowContext(f.ctx, "SELECT COUNT(*) FROM users").Scan(&n)
+		return n
+	}
+
+	// Archived and unknown emails get nothing, and leave no user behind.
+	for _, e := range []string{"barry@example.org", "nobody@example.org", "not-an-email"} {
+		if _, err := as.RequestLoginLink(f.ctx, e, 15*time.Minute); !errors.Is(err, auth.ErrNoMember) {
+			t.Errorf("%s: %v", e, err)
+		}
+	}
+	if n := countUsers(); n != 0 {
+		t.Errorf("users created for non-members: %d", n)
+	}
+
+	link, err := as.RequestLoginLink(f.ctx, " Cara@Example.org ", 15*time.Minute)
+	if err != nil || link.MemberID != 103 || link.Token == "" {
+		t.Fatalf("request: %+v %v", link, err)
+	}
+	var stored string
+	f.app.QueryRowContext(f.ctx, "SELECT token_hash FROM login_tokens WHERE user_id = ?", link.UserID).Scan(&stored)
+	if stored != auth.HashToken(link.Token) {
+		t.Error("login_tokens must hold the SHA-256 of the token only")
+	}
+	// A second request reuses the same user.
+	link2, err := as.RequestLoginLink(f.ctx, "cara@example.org", 15*time.Minute)
+	if err != nil || link2.UserID != link.UserID || countUsers() != 1 {
+		t.Fatalf("second request: %+v %v", link2, err)
+	}
+
+	p, err := as.LoginWithToken(f.ctx, link.Token)
+	if err != nil || p.MemberID != 103 || p.AuthMethod != auth.LoginMethodMagicLink || !p.HasRole(auth.RoleMember) || p.IsCommittee() {
+		t.Fatalf("login: %+v %v", p, err)
+	}
+	if _, err := as.LoginWithToken(f.ctx, link.Token); !errors.Is(err, auth.ErrInvalidToken) {
+		t.Errorf("token reused: %v", err)
+	}
+	var audits int
+	var labels string
+	f.app.QueryRowContext(f.ctx, "SELECT COUNT(*), GROUP_CONCAT(DISTINCT actor) FROM audit_log WHERE action IN (?, ?) AND actor_user_id = ? AND entity_id = ?",
+		auth.ActionLoginLink, auth.ActionLoginVia, link.UserID, link.UserID).Scan(&audits, &labels)
+	if audits != 3 || strings.Contains(labels, "@") {
+		t.Errorf("audit: %d entries, actors %q", audits, labels)
+	}
+
+	sess, _ := as.CreateSession(f.ctx, p.UserID, auth.LoginMethodMagicLink, time.Hour)
+	st, err := as.VerifySession(f.ctx, sess)
+	if err != nil || st == nil || !st.Member || st.Committee || st.MemberID != 103 {
+		t.Fatalf("verify: %+v %v", st, err)
+	}
+	if st, err := as.VerifySession(f.ctx, "unknown"); st != nil || err != nil {
+		t.Errorf("unknown session: %+v %v", st, err)
+	}
+
+	// Expired tokens are refused.
+	old, _ := as.CreateLoginToken(f.ctx, link.UserID, -time.Minute)
+	if _, err := as.LoginWithToken(f.ctx, old); !errors.Is(err, auth.ErrInvalidToken) {
+		t.Errorf("expired token: %v", err)
+	}
+
+	// Archiving the member ends forward_auth membership and outstanding links.
+	if err := store.ArchiveMember(f.ctx, actor, 103); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := as.VerifySession(f.ctx, sess); st == nil || st.MemberID != 0 {
+		t.Errorf("archived member still reported: %+v", st)
+	}
+	if _, err := as.LoginWithToken(f.ctx, link2.Token); !errors.Is(err, auth.ErrInvalidToken) {
+		t.Errorf("archived member signed in: %v", err)
+	}
+	if err := store.RestoreMember(f.ctx, actor, 103); err != nil {
+		t.Fatal(err)
+	}
+
+	// A committee user who is also a member: a link session is member-only.
+	uid, _ := as.EnsureUser(f.ctx, "alice@example.org")
+	as.SetPassword(f.ctx, uid, "a-long-test-password")
+	as.GrantRole(f.ctx, uid, auth.RoleAdmin)
+	al, err := as.RequestLoginLink(f.ctx, "alice@example.org", 15*time.Minute)
+	if err != nil || al.UserID != uid || al.MemberID != 101 {
+		t.Fatalf("committee member request: %+v %v", al, err)
+	}
+	ap, err := as.LoginWithToken(f.ctx, al.Token)
+	if err != nil || ap.IsCommittee() || ap.Can(auth.PermViewMembers) {
+		t.Fatalf("link session must not carry committee roles: %+v %v", ap, err)
+	}
+	linkSess, _ := as.CreateSession(f.ctx, uid, auth.LoginMethodMagicLink, time.Hour)
+	if lp, _ := as.LookupSession(f.ctx, linkSess); lp == nil || lp.IsCommittee() || !lp.HasRole(auth.RoleMember) {
+		t.Errorf("LookupSession of a link session: %+v", lp)
+	}
+	pwSess, _ := as.CreateSession(f.ctx, uid, auth.LoginMethodPassword, time.Hour)
+	if st, _ := as.VerifySession(f.ctx, pwSess); st == nil || !st.Committee || !st.Member || st.MemberID != 101 {
+		t.Errorf("password session verify: %+v", st)
+	}
+	if lp, _ := as.LookupSession(f.ctx, pwSess); lp == nil || !lp.HasRole(auth.RoleAdmin) {
+		t.Errorf("LookupSession of a password session: %+v", lp)
+	}
+
+	// Inconsistent links and disabled users get no link.
+	caraUID, _ := as.UserIDByEmail(f.ctx, "cara@example.org")
+	as.LinkMember(f.ctx, caraUID, 0)
+	altUID, _ := as.EnsureUser(f.ctx, "cara.alt@example.org")
+	as.LinkMember(f.ctx, altUID, 103)
+	if _, err := as.RequestLoginLink(f.ctx, "cara@example.org", 15*time.Minute); !errors.Is(err, auth.ErrLoginNotAllowed) {
+		t.Errorf("member linked to another user: %v", err)
+	}
+	as.LinkMember(f.ctx, altUID, 0)
+	as.SetDisabled(f.ctx, caraUID, true)
+	if _, err := as.RequestLoginLink(f.ctx, "cara@example.org", 15*time.Minute); !errors.Is(err, auth.ErrLoginNotAllowed) {
+		t.Errorf("disabled user: %v", err)
+	}
+}
+
 // TestLegacyImportRepairsEncoding stores UTF-8 bytes in the latin1 legacy
 // columns, as the old PHP site did, and checks that the import repairs the
 // resulting double encoding (and stays idempotent).

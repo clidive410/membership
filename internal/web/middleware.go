@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -43,8 +44,13 @@ func principalFrom(ctx context.Context) *auth.Principal {
 }
 
 // loadSession resolves the session cookie into a Principal on the context.
+// /auth/verify is skipped: it does its own single-query lookup.
 func (s *Server) loadSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == verifyPath {
+			next.ServeHTTP(w, r)
+			return
+		}
 		c, err := r.Cookie(sessionCookie)
 		if err == nil && c.Value != "" {
 			p, err := s.opt.Auth.LookupSession(r.Context(), c.Value)
@@ -59,9 +65,9 @@ func (s *Server) loadSession(next http.Handler) http.Handler {
 }
 
 // setSessionCookie writes (or, with an empty token, clears) the session
-// cookie. With COOKIE_DOMAIN set the cookie is shared with sibling hosts so
-// that Caddy can forward it to /auth/verify.
-func (s *Server) setSessionCookie(w http.ResponseWriter, token string) {
+// cookie, lasting ttl. With COOKIE_DOMAIN set the cookie is shared with
+// sibling hosts so that Caddy can forward it to /auth/verify.
+func (s *Server) setSessionCookie(w http.ResponseWriter, token string, ttl time.Duration) {
 	c := &http.Cookie{
 		Name:     sessionCookie,
 		Value:    token,
@@ -70,7 +76,7 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, token string) {
 		HttpOnly: true,
 		Secure:   s.opt.CookieSecure,
 		SameSite: http.SameSiteLaxMode,
-		MaxAge:   int(s.opt.SessionTTL.Seconds()),
+		MaxAge:   int(ttl.Seconds()),
 	}
 	if token == "" {
 		c.MaxAge = -1
@@ -129,13 +135,17 @@ func (s *Server) checkCSRF(next http.Handler) http.Handler {
 	})
 }
 
-// requireSignIn sends visitors without a session to the login page (GET)
-// or answers 401 (other methods).
+// requireSignIn sends visitors without a session to the login page (GET),
+// which brings them back afterwards, or answers 401 (other methods).
 func (s *Server) requireSignIn(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if principalFrom(r.Context()) == nil {
 			if r.Method == http.MethodGet || r.Method == http.MethodHead {
-				http.Redirect(w, r, s.url("/login"), http.StatusSeeOther)
+				back := r.URL.Path
+				if r.URL.RawQuery != "" {
+					back += "?" + r.URL.RawQuery
+				}
+				http.Redirect(w, r, s.url("/login?"+url.Values{"next": {back}}.Encode()), http.StatusSeeOther)
 				return
 			}
 			http.Error(w, "Please sign in.", http.StatusUnauthorized)
@@ -199,8 +209,11 @@ func (s *Server) logRequests(next http.Handler) http.Handler {
 			return
 		}
 		level := slog.LevelInfo
-		if rec.status >= 500 {
+		switch {
+		case rec.status >= 500:
 			level = slog.LevelError
+		case r.URL.Path == s.opt.BasePath+verifyPath:
+			level = slog.LevelDebug // forward_auth: one call per WordPress request
 		}
 		s.opt.Log.Log(r.Context(), level, "request", "method", r.Method, "path", r.URL.Path,
 			"status", rec.status, "duration_ms", time.Since(start).Milliseconds(), "request_id", requestIDFrom(r.Context()))

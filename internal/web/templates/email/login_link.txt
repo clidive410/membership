@@ -1,0 +1,12 @@
+Hello,
+
+Use this link to sign in to the Clidive membership portal:
+
+{{.Link}}
+
+The link works once and expires in {{.Minutes}} minutes. If you did not ask
+to sign in, you can ignore this email: nobody can sign in without the link.
+
+Questions about your membership: membership@clidive.org
+
+Clidive BSAC 410

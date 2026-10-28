@@ -8,12 +8,16 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"net/url"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
 
 	"github.com/clidive410/membership/internal/auth"
+	"github.com/clidive410/membership/internal/mail"
 	"github.com/clidive410/membership/internal/members"
 )
 
@@ -47,6 +51,9 @@ type AuthStore interface {
 	CreateSession(ctx context.Context, userID int64, method string, ttl time.Duration) (string, error)
 	LookupSession(ctx context.Context, token string) (*auth.Principal, error)
 	DeleteSession(ctx context.Context, token string) error
+	RequestLoginLink(ctx context.Context, email string, ttl time.Duration) (*auth.LoginLink, error)
+	LoginWithToken(ctx context.Context, token string) (*auth.Principal, error)
+	VerifySession(ctx context.Context, token string) (*auth.SessionStatus, error)
 }
 
 // Options configures a Server.
@@ -62,16 +69,33 @@ type Options struct {
 	// whose X-Forwarded-For entries are believed. Empty: the TCP peer is
 	// the client.
 	TrustedProxies []netip.Prefix
-	SessionTTL     time.Duration
-	Now            func() time.Time
+	SessionTTL     time.Duration // password sessions (committee), default 12h
+	// MemberSessionTTL is the lifetime of sessions started from an emailed
+	// sign-in link, default 30 days.
+	MemberSessionTTL time.Duration
+	// PublicURL is the public base URL (BASE_URL, including any path
+	// prefix) used in emailed links. Default http://localhost:8080.
+	PublicURL *url.URL
+	// LoginReturnURL is the optional default destination after a member
+	// signs in; absolute next= URLs must share its scheme and host.
+	LoginReturnURL *url.URL
+	// Mailer sends sign-in links; nil means mail.Unconfigured.
+	Mailer mail.Sender
+	Now    func() time.Time
 }
 
 // Server holds the HTTP handlers.
 type Server struct {
 	opt     Options
 	csrf    auth.CSRF
-	limiter *limiter
-	pages   map[string]*pageTemplate
+	limiter *limiter // failed password logins
+	// Sign-in link requests, counted whether or not the email matches.
+	linkByIP, linkByEmail *limiter
+	pages                 map[string]*pageTemplate
+	// Background sign-in link work (lookup, token, email), so that the
+	// response time does not reveal whether an address belongs to a member.
+	bg      sync.WaitGroup
+	sendSem chan struct{}
 }
 
 // New builds a Server; it panics if the embedded templates do not parse.
@@ -85,11 +109,23 @@ func New(opt Options) *Server {
 	if opt.SessionTTL == 0 {
 		opt.SessionTTL = 12 * time.Hour
 	}
+	if opt.MemberSessionTTL == 0 {
+		opt.MemberSessionTTL = 30 * 24 * time.Hour
+	}
+	if opt.Mailer == nil {
+		opt.Mailer = mail.Unconfigured{}
+	}
 	opt.BasePath = strings.TrimRight(opt.BasePath, "/")
+	if opt.PublicURL == nil {
+		opt.PublicURL = &url.URL{Scheme: "http", Host: "localhost:8080", Path: opt.BasePath}
+	}
 	s := &Server{
-		opt:     opt,
-		csrf:    auth.CSRF{Secret: opt.SessionSecret},
-		limiter: newLimiter(10, 15*time.Minute),
+		opt:         opt,
+		csrf:        auth.CSRF{Secret: opt.SessionSecret},
+		limiter:     newLimiter(10, 15*time.Minute),
+		linkByIP:    newLimiter(linkRequestsPerIP, 15*time.Minute),
+		linkByEmail: newLimiter(linkRequestsPerEmail, 15*time.Minute),
+		sendSem:     make(chan struct{}, maxPendingLinks),
 	}
 	s.pages = mustParseTemplates(opt.BasePath)
 	return s
@@ -114,10 +150,14 @@ func (s *Server) Handler() http.Handler {
 
 	get("/login", s.handleLoginForm)
 	r.HandleFunc("/login", s.handleLogin).Methods(http.MethodPost)
+	r.HandleFunc("/login/link", s.handleLoginLink).Methods(http.MethodPost)
+	// GET only: HEAD would spend the single-use token without signing in.
+	r.HandleFunc("/login/verify", s.handleLoginVerify).Methods(http.MethodGet)
 	r.HandleFunc("/logout", s.handleLogout).Methods(http.MethodPost)
-	get("/", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, s.url("/admin/members"), http.StatusSeeOther)
-	})
+	get("/", s.handleHome)
+
+	// Member pages: any signed-in user; the handler shows their own record.
+	r.Handle("/me", s.requireSignIn(http.HandlerFunc(s.handleMe))).Methods(http.MethodGet, http.MethodHead)
 
 	// Admin UI (committee and membership managers). Every route names the
 	// permission it needs (see internal/auth/roles.go); the subrouter's
@@ -147,8 +187,8 @@ func (s *Server) Handler() http.Handler {
 	route("GET", "/emails.txt", auth.PermEmailLists, s.handleEmailListText)
 	admin.Use(s.requireSignIn, s.requirePermission(perms))
 
-	// Extension point: member self-service routes (e.g. GET/POST /me) will be
-	// registered here, guarded by auth.PermEditOwnPersonal and applying only
+	// Extension point: member self-service editing (POST /me) will be
+	// guarded by auth.PermEditOwnPersonal and apply only
 	// Principal.SelfEditableGroups().
 
 	// The chain below wraps the whole router (not router.Use), so it also
@@ -220,28 +260,89 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("ok\n"))
 }
 
-// handleVerify is for Caddy forward_auth: it always answers 200, and adds
-// X-Clidive-Member (and X-Clidive-Member-Status) only when the request
-// carries a valid session of a user linked to a non-archived member. The
-// status is "expired" exactly when the Clidive expiry date is before today,
-// otherwise "active"; no other rule is applied.
-func (s *Server) handleVerify(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Vary", "Cookie")
+// Wait blocks until background sign-in link sends have finished or ctx is
+// done. Call it after http.Server.Shutdown.
+func (s *Server) Wait(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() { s.bg.Wait(); close(done) }()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// handleHome sends each kind of user to their start page.
+func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	p := principalFrom(r.Context())
-	if p != nil && p.MemberID != 0 {
-		m, err := s.opt.Members.GetMember(r.Context(), p.MemberID)
-		if err != nil && err != members.ErrNotFound {
-			s.opt.Log.Error("verify: loading member", "err", err)
-		}
-		if err == nil && !m.Archived() {
-			status := "active"
-			if m.Expired(s.opt.Now()) {
-				status = "expired"
+	dest := "/login"
+	switch {
+	case p.Can(auth.PermViewMembers):
+		dest = "/admin/members"
+	case p != nil && p.MemberID != 0:
+		dest = "/me"
+	}
+	http.Redirect(w, r, s.url(dest), http.StatusSeeOther)
+}
+
+// Headers set by /auth/verify (see README "/auth/verify").
+const (
+	headerMember       = "X-Clidive-Member"
+	headerMemberStatus = "X-Clidive-Member-Status"
+	headerMemberID     = "X-Clidive-Member-Id"
+)
+
+// verifyPath is answered without loading the full session (see loadSession).
+const verifyPath = "/auth/verify"
+
+// handleVerify is for Caddy forward_auth. It always answers 200 with an
+// empty body, never sets a cookie and never redirects. It costs one query
+// (auth.Store.VerifySession) and no template.
+//
+// For a valid session of a user with the member role and a linked,
+// non-archived member, or of a committee user signed in with a password, it
+// sets:
+//
+//	X-Clidive-Member: 1
+//	X-Clidive-Member-Status: active | expired
+//	X-Clidive-Member-Id: <members.id>   (only when a member row is linked)
+//
+// "expired" means the linked member's Clidive expiry date is before today;
+// committee users without a member row count as active. Otherwise none of
+// the headers is set.
+func (s *Server) handleVerify(w http.ResponseWriter, r *http.Request) {
+	h := w.Header()
+	h.Set("Cache-Control", "no-store")
+	h.Set("Vary", "Cookie")
+	if c, err := r.Cookie(sessionCookie); err == nil && c.Value != "" {
+		st, err := s.opt.Auth.VerifySession(r.Context(), c.Value)
+		if err != nil {
+			s.opt.Log.Error("verify: looking up session", "err", err)
+		} else if status, ok := verifyStatus(st, s.opt.Now()); ok {
+			h.Set(headerMember, "1")
+			h.Set(headerMemberStatus, status)
+			if st.MemberID != 0 {
+				h.Set(headerMemberID, strconv.FormatInt(st.MemberID, 10))
 			}
-			w.Header().Set("X-Clidive-Member", "1")
-			w.Header().Set("X-Clidive-Member-Status", status)
 		}
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+// verifyStatus decides the forward_auth answer for a session.
+func verifyStatus(st *auth.SessionStatus, now time.Time) (string, bool) {
+	switch {
+	case st == nil:
+		return "", false
+	case st.MemberID != 0 && (st.Member || st.Committee):
+		m := members.Member{MembershipExpiry: st.Expiry}
+		if m.Expired(now) {
+			return "expired", true
+		}
+		return "active", true
+	case st.Committee:
+		return "active", true
+	}
+	return "", false
 }

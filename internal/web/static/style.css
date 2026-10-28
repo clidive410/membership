@@ -191,9 +191,26 @@ fieldset[disabled] .card-body { background: var(--tblr-bg-surface-secondary, #f9
 
 /* Sign-in page. */
 .login-brand { display: inline-block; }
+.committee-login > summary { cursor: pointer; }
+.linksent-icon .icon { width: 3rem; height: 3rem; color: var(--tblr-secondary); }
+
+/* Members' top bar (no sidebar): wordmark, "My membership", sign out. */
+.member-bar { background: var(--clidive-black); padding: .5rem 0; }
+.member-bar .container-xl { max-width: 96rem; display: flex; flex-wrap: wrap; align-items: center; gap: .75rem 1.5rem; }
+.member-bar .navbar-nav .nav-link {
+  font-family: var(--clidive-condensed); font-weight: 700; font-size: 1.05rem; letter-spacing: .04em; text-transform: uppercase;
+  color: rgba(255,255,255,.78); border-bottom: 3px solid transparent; padding: .4rem .6rem;
+}
+.member-bar .navbar-nav .nav-link:hover { color: #fff; }
+.member-bar .navbar-nav .nav-item.active > .nav-link { color: var(--clidive-yellow); border-bottom-color: var(--clidive-yellow); }
+.member-bar .nav-link-icon { color: inherit; }
+.member-bar .btn { --tblr-btn-color: rgba(255,255,255,.85); --tblr-btn-border-color: rgba(255,255,255,.25); --tblr-btn-hover-color: #fff; --tblr-btn-hover-bg: rgba(255,255,255,.1); --tblr-btn-hover-border-color: rgba(255,255,255,.4); }
+.member-bar .btn .icon { margin-inline-end: .25rem; }
+.me-header { padding-top: 1rem; }
+.datagrid dd { margin: 0; }
 
 @media print {
-  .sidebar, .form-actions, .list-filters, .menu { display: none !important; }
+  .sidebar, .member-bar, .form-actions, .list-filters, .menu { display: none !important; }
   .page-wrapper { margin: 0 !important; }
 }
 

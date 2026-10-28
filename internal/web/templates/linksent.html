@@ -1,0 +1,17 @@
+{{define "content"}}
+<div class="container container-tight py-4">
+  <div class="text-center mb-4">
+    <span class="login-brand">{{template "wordmark" .}}</span>
+  </div>
+  <div class="card card-md">
+    <div class="card-body text-center">
+      <div class="mb-3 linksent-icon" aria-hidden="true">{{icon "mail"}}</div>
+      <h1 class="h2 mb-3">Check your email</h1>
+      <p>If that address belongs to a current member, we've emailed a link to sign in.</p>
+      <p class="text-secondary">The link works once and expires in 15 minutes. It can take a minute or two to arrive; please also check your spam folder.</p>
+      <a class="btn btn-outline-secondary mt-2" href="{{url "/login"}}">{{icon "arrow-left"}} Back to sign in</a>
+    </div>
+  </div>
+  <p class="text-center text-secondary mt-3">No email? The club may have a different address for you: email <a href="mailto:membership@clidive.org">membership@clidive.org</a>.</p>
+</div>
+{{end}}

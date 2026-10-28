@@ -8,12 +8,14 @@ Infrastructure lives in [`clidive410/infra`](https://github.com/clidive410/infra
 - Committee admin UI: member list with search and type/status filters,
   create/edit/archive/restore, payment history, bulk payment management, CSV
   export and mailing-list email lists.
-- Roles: `admin` (webmaster/committee), `membership_manager`, and `member`
-  (reserved for future self-service).
-- Password login (argon2id) with server-side sessions, CSRF protection and an
-  audit log of every member and payment change.
+- Roles: `admin` (webmaster/committee), `membership_manager`, and `member`.
+- Members sign in with a single-use link emailed to their primary address
+  and see their own record at `/me` (read-only). The committee signs in with
+  a password (argon2id). Server-side sessions, CSRF protection and an audit
+  log of every member and payment change and of member sign-ins.
 - `GET /auth/verify` lets Caddy `forward_auth` tell the WordPress site
-  whether the visitor is a signed-in club member.
+  whether the visitor is a signed-in club member, and whether their
+  membership has expired.
 - `migrate-legacy` imports the legacy `membership` tables idempotently.
 - `seed-dev` fills an empty scratch database with invented members for UI work.
 
@@ -37,7 +39,8 @@ internal/members/       domain model, field groups, diffs, MariaDB repository, a
 internal/auth/          roles and permissions, argon2id, sessions, CSRF, login tokens
 internal/legacy/        legacy field mapping and idempotent importer
 internal/export/        CSV export and email-list formatting
-internal/web/           handlers, middleware, templates, Tabler CSS and overrides (embedded)
+internal/mail/          SMTP sending (STARTTLS) of the sign-in emails
+internal/web/           handlers, middleware, page and email templates, Tabler CSS and overrides (embedded)
 internal/devseed/       invented demo members for `seed-dev`
 internal/integration/   MariaDB integration tests (opt-in)
 ```
@@ -58,7 +61,9 @@ go run ./cmd/membership user set-password -email you@example.org -role admin   #
 go run ./cmd/membership serve            # add --migrate to apply migrations first
 ```
 
-Then open <http://localhost:8080/> and sign in.
+Then open <http://localhost:8080/> and sign in. Without `SMTP_HOST`, and
+with `LOG_FORMAT=text`, member sign-in emails (including the link) are
+written to the server log instead of being sent.
 
 For UI work without real member data, use a scratch database and invented
 members (`seed-dev` refuses to run on a database that already has members):
@@ -106,12 +111,17 @@ contents are trimmed of surrounding whitespace. If both are set, `NAME` wins.
 | `COOKIE_SECURE`  | `true` if BASE_URL is https | Mark cookies `Secure`. |
 | `COOKIE_DOMAIN`  | (host-only)              | Session cookie domain, e.g. `clidive.org`, so the cookie also reaches the WordPress site for `/auth/verify`. |
 | `LISTEN_ADDR`    | `:8080`                  | HTTP listen address. The healthcheck probes its port on 127.0.0.1. |
-| `SESSION_TTL`    | `12h`                    | Session lifetime (Go duration). |
+| `SESSION_TTL`    | `12h`                    | Lifetime of password (committee) sessions (Go duration). |
+| `MEMBER_SESSION_TTL` | `720h` (30 days)     | Lifetime of sessions started from an emailed sign-in link. |
+| `LOGIN_RETURN_URL` | (none)                 | Where members land after signing in when the link has no `next`, e.g. `https://www.clidive.org/`. Without it: `/me`. Absolute `next` URLs are only followed on this URL's scheme and host. |
 | `MIGRATE_ON_START` | `false`                | `true` makes `serve` apply pending migrations before listening, like `serve --migrate`. `AUTO_MIGRATE` is a deprecated alias, used only when `MIGRATE_ON_START` is unset. |
 | `HEALTHCHECK_URL` | (derived)               | Only for `membership healthcheck`: URL to probe instead of `http://127.0.0.1:<port of LISTEN_ADDR><BASE_URL path>/healthz`. |
 | `LOG_LEVEL`      | `info`                   | `debug`, `info`, `warn`, `error`. |
 | `LOG_FORMAT`     | `json`                   | `json` or `text` (log/slog). |
-| `MAIL_FROM`      | `membership@clidive.org` | Sender for future emails. Not used yet. |
+| `MAIL_FROM`      | `membership@clidive.org` | Sender of the sign-in emails: `addr@example.org` or `Name <addr@example.org>`. |
+| `SMTP_HOST`      | (none)                   | SMTP submission server. Unset: emails are logged when `LOG_FORMAT=text` (development); otherwise every send fails with an error saying SMTP is not configured (and `serve` logs an error at start). |
+| `SMTP_PORT`      | `587`                    | `587` uses STARTTLS, `465` implicit TLS. TLS is required (except to a loopback server); the app never falls back to clear text. |
+| `SMTP_USERNAME`, `SMTP_PASSWORD` | (none)   | SMTP AUTH PLAIN credentials (set both or neither). Usually given as `SMTP_USERNAME_FILE`/`SMTP_PASSWORD_FILE`. |
 | `LEGACY_DB_DSN`  |                          | Default for `migrate-legacy -legacy-dsn`. |
 | `TRUSTED_PROXIES`| (none)                   | Comma-separated CIDRs (or addresses) of reverse proxies, e.g. the Swarm overlay network `10.0.0.0/8`. Only requests whose TCP peer is in this list have `X-Forwarded-For` read, from the right, to find the client address used for login rate limiting. Without it the TCP peer is the client. |
 
@@ -129,7 +139,7 @@ admins need not have one.
 |----------------------|-----|
 | `admin`              | Everything: create, edit all fields, archive/restore, payments, CSV export, email lists, history. |
 | `membership_manager` | View members; edit membership fields (Clidive type/expiry/join date, BSAC details, query/notes); record and delete payments; bulk payments; view history. Personal and club fields are shown read-only. |
-| `member`             | Nothing in the admin UI yet. Reserved for self-service, which will allow editing own contact, address and emergency details only. |
+| `member`             | Sign in with an emailed link and view their own record at `/me` (read-only). No access to `/admin` (403). Granted automatically on the first link request. Self-service editing (own contact, address and emergency details only) is planned. |
 
 Every route declares its permission (`internal/web/server.go`). Field-level
 rules use field groups (`internal/members/fields.go`): the server applies only
@@ -176,36 +186,120 @@ membership migrate-legacy -legacy-dsn 'user:pw@tcp(legacy-host:3306)/ironmonger'
 - The output contains only counts. With `-v` it also lists warnings, each
   giving a member id and column, never the value.
 
+## Member sign-in (email links)
+
+Members have no password. They sign in with a link sent to their primary
+email (Email 1), which identifies them:
+
+1. `GET /login` shows "Members: email me a sign-in link" (an email field)
+   and, collapsed below it, the committee password form.
+2. `POST /login/link` (CSRF-protected) always answers with the same page:
+   "If that address belongs to a current member, we've emailed a link". The
+   lookup and the email happen in the background, so neither the page nor
+   the response time reveals whether the address is a member's. Requests are
+   limited to 20 per IP address and 5 per email address per 15 minutes (429
+   beyond that).
+   If the trimmed, lower-cased address is the primary email of exactly one
+   non-archived member, the app, in one transaction: finds or creates the
+   `users` row with that email, links it to the member, grants the `member`
+   role, stores the SHA-256 of a random 32-byte token in `login_tokens`
+   (valid 15 minutes, single use) and writes an `auth.login_link` audit
+   entry (by user id only). It then emails
+   `BASE_URL/login/verify?token=...` (plus `&next=...` when the form carried
+   a safe `next`). Members whose membership has expired can still sign in;
+   archived members cannot. No link is issued for a disabled user, or when
+   the login identity is linked inconsistently (the user is linked to a
+   different member, or the member to a different user): such requests are
+   logged as warnings for the committee to resolve with `membership user`.
+3. `GET /login/verify?token=...` spends the token (even if the sign-in is
+   then refused), checks that the user is enabled, still has the `member`
+   role and is linked to a non-archived member, writes an `auth.login` audit
+   entry, starts a session of `MEMBER_SESSION_TTL` (30 days) and sets the
+   `clidive_session` cookie (with `COOKIE_DOMAIN` when set). It redirects to
+   `next` if that is an in-app path (such as `/me`) or a URL on the scheme
+   and host of `LOGIN_RETURN_URL`; otherwise to `LOGIN_RETURN_URL`, or
+   `/me`. An unknown, used or expired link shows the sign-in page with
+   "This sign-in link has expired or has already been used". The route
+   answers `GET` only, so a `HEAD` request cannot spend a link.
+
+A session started from a link carries the `member` role only, even for a
+committee user who is also a member: the admin UI always needs a password
+sign-in. Members see a top bar with only "My membership" and "Sign out";
+`/admin` pages answer 403. `POST /logout` ends any session.
+
+`GET /me` shows the member's own record read-only: name, membership type,
+Clidive expiry (with an "expired" badge when in the past), join date, last
+payment, BSAC number and renewal date, contact details, emergency contact,
+qualifications, mailing-list flags and payment history (date, amount,
+method; payment notes and the committee's query/notes fields are not
+shown). Changes are requested by email to membership@clidive.org.
+
+Logs carry user ids and request ids only: never the email address or the
+token. The SMTP sender logs the recipient's domain.
+
 ## `/auth/verify` (Caddy forward_auth)
 
-`GET /auth/verify` always returns `200`. When the request carries a valid
-session cookie of a user linked to a non-archived member, it adds:
+`GET /auth/verify` (or `HEAD`) always returns `200` with an empty body. It
+never sets a cookie and never redirects. It reads the `clidive_session`
+cookie and answers with one database query and no template, and sends
+`Cache-Control: no-store` and `Vary: Cookie`.
 
-- `X-Clidive-Member: 1`
-- `X-Clidive-Member-Status: active` or `expired`. `expired` means the Clidive
-  membership expiry date is before today; no other rule is applied.
+The headers below are set only when the cookie is a valid, unexpired
+session of an enabled user who either
+
+- has the `member` role and is linked to a non-archived member, or
+- has a committee role (`admin`, `membership_manager`) and signed in with a
+  password.
+
+| Header | Value |
+|--------|-------|
+| `X-Clidive-Member` | `1` |
+| `X-Clidive-Member-Status` | `expired` when the linked member's Clidive expiry date is before today, otherwise `active`. Committee users without a linked member row are `active`. No other rule is applied (membership type, including Lapsed, is not considered). |
+| `X-Clidive-Member-Id` | The linked member's id (`members.id`). Absent for committee users without a member row. |
+
+In every other case (no cookie, unknown or expired session, disabled user,
+archived member, a user without either role) none of the three headers is
+set.
 
 With `COOKIE_DOMAIN=clidive.org` the session cookie set by
-`members.clidive.org` is also sent to `clidive.org`. The WordPress site can
-then show member-only prices:
+`members.clidive.org` is also sent to `www.clidive.org`. Caddy calls
+`/auth/verify` for each WordPress request and copies the headers onto it:
 
 ```caddyfile
-clidive.org {
-	# Never trust these headers from the client.
-	request_header -X-Clidive-Member
-	request_header -X-Clidive-Member-Status
-	forward_auth membership:8080 {
-		uri /auth/verify
-		copy_headers X-Clidive-Member X-Clidive-Member-Status
+www.clidive.org {
+	# route keeps this order; outside it Caddy runs forward_auth before
+	# request_header.
+	route {
+		# Never trust these headers from the client: strip them before
+		# forward_auth adds the real ones.
+		request_header -X-Clidive-Member
+		request_header -X-Clidive-Member-Status
+		request_header -X-Clidive-Member-Id
+		forward_auth membership:8080 {
+			uri /auth/verify
+			copy_headers X-Clidive-Member X-Clidive-Member-Status X-Clidive-Member-Id
+		}
+		reverse_proxy wordpress:80
 	}
-	reverse_proxy wordpress:80
 }
 ```
 
-Any WordPress page cache must vary on these headers or bypass the cache for
-requests that carry the `clidive_session` cookie. Members cannot sign in yet:
-that arrives with magic links (see below). Until then only users linked to a
-member with `user link` get the header.
+Notes for the WordPress side:
+
+- **The site must strip incoming `X-Clidive-*` headers before
+  `forward_auth` copies them** (the `request_header` lines above). Otherwise
+  a visitor could send `X-Clidive-Member: 1` themselves and pass as a member
+  whenever the app adds no header.
+- In PHP the headers appear as `$_SERVER['HTTP_X_CLIDIVE_MEMBER']`,
+  `HTTP_X_CLIDIVE_MEMBER_STATUS` and `HTTP_X_CLIDIVE_MEMBER_ID`. Treat a
+  missing header as "not a signed-in member".
+- Any page cache must vary on these headers or bypass the cache for
+  requests that carry the `clidive_session` cookie.
+- To send a visitor to sign in and back, link to
+  `https://members.clidive.org/login?next=<url-encoded page URL>` with
+  `LOGIN_RETURN_URL=https://www.clidive.org/` set on the app.
+- If the app is mounted under a path (`BASE_URL` with a path), prefix the
+  `uri` with it.
 
 ## Deployment
 
@@ -290,6 +384,10 @@ without a default.
 | `BASE_URL` | `https://members.clidive.org` |
 | `COOKIE_SECURE` | Defaults to `true` for an https `BASE_URL`. |
 | `COOKIE_DOMAIN` | `clidive.org`, so `/auth/verify` sees the session on the WordPress site. |
+| `SMTP_HOST`, `SMTP_PORT` | SMTP submission server and port (`587`, STARTTLS). |
+| `SMTP_USERNAME_FILE`, `SMTP_PASSWORD_FILE` | Swarm secrets with the SMTP credentials. Or `SMTP_USERNAME`/`SMTP_PASSWORD`. |
+| `MAIL_FROM` | e.g. `Clidive Membership <membership@clidive.org>`; the SMTP account must be allowed to send as it. |
+| `LOGIN_RETURN_URL` | Optional, e.g. `https://www.clidive.org/`. |
 | `TRUSTED_PROXIES` | CIDR of the overlay network Caddy reaches the service on, e.g. `10.0.0.0/8`. |
 | `LOG_FORMAT` | `json` (default). |
 | `LOG_LEVEL` | `info` (default). |
@@ -353,13 +451,11 @@ Changed on purpose:
 
 ## Extension points
 
-- **Member self-service and magic links:** `users.password_hash` is
-  nullable, and `login_tokens` (single-use, expiring, hashed) is already
-  migrated. `auth.Store.CreateLoginToken`/`ConsumeLoginToken` exist. The plan:
-  look up the non-archived member by primary email, create or link the user
-  with role `member`, and email the link via AWS SES from `MAIL_FROM`. A `/me`
-  route then applies only `Principal.SelfEditableGroups()`. `users.totp_secret`
-  is reserved for optional TOTP.
+- **Member self-service:** members already sign in (see
+  [Member sign-in](#member-sign-in-email-links)) and view `/me`. Editing
+  would add `POST /me`, guarded by `auth.PermEditOwnPersonal` and applying
+  only `Principal.SelfEditableGroups()` (personal, contact and emergency
+  details). `users.totp_secret` is reserved for optional TOTP.
 - **Member directory:** `members.share_contact_details` (default false) and
   the `members.DirectoryEntry` read model (`Member.Directory()`) define what
   one member may see about another. No schema change is needed.

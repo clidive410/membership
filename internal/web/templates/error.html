@@ -7,7 +7,8 @@
     <p class="empty-subtitle text-secondary">{{.Data}}</p>{{end}}
     <div class="empty-action">
       {{if .Shell}}<a class="btn btn-primary" href="{{url "/admin/members"}}">{{icon "arrow-left"}} Back to the member list</a>
-      {{else}}<a class="btn btn-primary" href="{{url "/login"}}">Go to sign in</a>{{end}}
+      {{else if and .P .P.MemberID}}<a class="btn btn-primary" href="{{url "/me"}}">{{icon "arrow-left"}} Back to my membership</a>
+      {{else if not .P}}<a class="btn btn-primary" href="{{url "/login"}}">Go to sign in</a>{{end}}
     </div>
   </div>
 </div>

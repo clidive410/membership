@@ -257,11 +257,16 @@ func (f *fakeMembers) Ping(context.Context) error {
 	return f.pingErr
 }
 
-// fakeAuth is an in-memory AuthStore.
+// fakeAuth is an in-memory AuthStore. Sign-in links look members up in fm.
 type fakeAuth struct {
 	mu       sync.Mutex
 	users    map[string]fakeUser // by email
 	sessions map[string]*auth.Principal
+	tokens   map[string]*fakeToken
+	fm       *fakeMembers
+	lookups  int // LookupSession calls
+	verifies int // VerifySession calls
+	lastTTL  time.Duration
 }
 
 type fakeUser struct {
@@ -269,8 +274,14 @@ type fakeUser struct {
 	p        auth.Principal
 }
 
+type fakeToken struct {
+	userID  int64
+	expires time.Time
+	used    bool
+}
+
 func newFakeAuth() *fakeAuth {
-	return &fakeAuth{users: map[string]fakeUser{}, sessions: map[string]*auth.Principal{}}
+	return &fakeAuth{users: map[string]fakeUser{}, sessions: map[string]*auth.Principal{}, tokens: map[string]*fakeToken{}}
 }
 
 func (f *fakeAuth) addUser(email, password string, memberID int64, roles ...auth.Role) {
@@ -279,15 +290,40 @@ func (f *fakeAuth) addUser(email, password string, memberID int64, roles ...auth
 	f.users[email] = fakeUser{password: password, p: auth.Principal{UserID: int64(len(f.users) + 1), Email: email, MemberID: memberID, Roles: roles}}
 }
 
-// session creates a session directly and returns its token.
-func (f *fakeAuth) session(email string) string {
+// forMethod returns the principal of a session started with method.
+func forMethod(p auth.Principal, method string) *auth.Principal {
+	p.AuthMethod = method
+	if method == auth.LoginMethodMagicLink {
+		var roles []auth.Role
+		for _, r := range p.Roles {
+			if r == auth.RoleMember {
+				roles = append(roles, r)
+			}
+		}
+		p.Roles = roles
+	}
+	return &p
+}
+
+// session creates a password session directly and returns its token.
+func (f *fakeAuth) session(email string) string { return f.sessionVia(email, auth.LoginMethodPassword) }
+
+// sessionVia creates a session started with method.
+func (f *fakeAuth) sessionVia(email, method string) string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	u := f.users[email]
 	tok := auth.NewToken()
-	p := u.p
-	f.sessions[tok] = &p
+	f.sessions[tok] = forMethod(f.users[email].p, method)
 	return tok
+}
+
+func (f *fakeAuth) userByID(id int64) (string, fakeUser, bool) {
+	for e, u := range f.users {
+		if u.p.UserID == id {
+			return e, u, true
+		}
+	}
+	return "", fakeUser{}, false
 }
 
 func (f *fakeAuth) Authenticate(_ context.Context, email, password string) (*auth.Principal, error) {
@@ -297,27 +333,26 @@ func (f *fakeAuth) Authenticate(_ context.Context, email, password string) (*aut
 	if !ok || u.password != password {
 		return nil, auth.ErrInvalidCredentials
 	}
-	p := u.p
-	return &p, nil
+	return forMethod(u.p, auth.LoginMethodPassword), nil
 }
 
-func (f *fakeAuth) CreateSession(_ context.Context, userID int64, _ string, _ time.Duration) (string, error) {
+func (f *fakeAuth) CreateSession(_ context.Context, userID int64, method string, ttl time.Duration) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	for _, u := range f.users {
-		if u.p.UserID == userID {
-			tok := auth.NewToken()
-			p := u.p
-			f.sessions[tok] = &p
-			return tok, nil
-		}
+	_, u, ok := f.userByID(userID)
+	if !ok {
+		return "", errors.New("no user")
 	}
-	return "", errors.New("no user")
+	tok := auth.NewToken()
+	f.sessions[tok] = forMethod(u.p, method)
+	f.lastTTL = ttl
+	return tok, nil
 }
 
 func (f *fakeAuth) LookupSession(_ context.Context, token string) (*auth.Principal, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.lookups++
 	return f.sessions[token], nil
 }
 
@@ -326,4 +361,81 @@ func (f *fakeAuth) DeleteSession(_ context.Context, token string) error {
 	defer f.mu.Unlock()
 	delete(f.sessions, token)
 	return nil
+}
+
+// currentMember returns the non-archived member with id, or nil.
+func (f *fakeAuth) currentMember(id int64) *members.Member {
+	if f.fm == nil || id == 0 {
+		return nil
+	}
+	f.fm.mu.Lock()
+	defer f.fm.mu.Unlock()
+	if m, ok := f.fm.members[id]; ok && !m.Archived() {
+		c := *m
+		return &c
+	}
+	return nil
+}
+
+func (f *fakeAuth) RequestLoginLink(_ context.Context, email string, ttl time.Duration) (*auth.LoginLink, error) {
+	email = members.NormalizeEmail(email)
+	var ids []int64
+	f.fm.mu.Lock()
+	for _, m := range f.fm.members {
+		if !m.Archived() && m.Email1 == email {
+			ids = append(ids, m.ID)
+		}
+	}
+	f.fm.mu.Unlock()
+	if len(ids) != 1 {
+		return nil, auth.ErrNoMember
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	u, ok := f.users[email]
+	if !ok {
+		u = fakeUser{p: auth.Principal{UserID: int64(len(f.users) + 1), Email: email}}
+	}
+	if u.p.MemberID != 0 && u.p.MemberID != ids[0] {
+		return nil, auth.ErrLoginNotAllowed
+	}
+	u.p.MemberID = ids[0]
+	if !u.p.HasRole(auth.RoleMember) {
+		u.p.Roles = append(slices.Clone(u.p.Roles), auth.RoleMember)
+	}
+	f.users[email] = u
+	tok := auth.NewToken()
+	f.tokens[tok] = &fakeToken{userID: u.p.UserID, expires: time.Now().Add(ttl)}
+	return &auth.LoginLink{Token: tok, UserID: u.p.UserID, MemberID: ids[0]}, nil
+}
+
+func (f *fakeAuth) LoginWithToken(_ context.Context, token string) (*auth.Principal, error) {
+	f.mu.Lock()
+	t, ok := f.tokens[token]
+	if !ok || t.used || time.Now().After(t.expires) {
+		f.mu.Unlock()
+		return nil, auth.ErrInvalidToken
+	}
+	t.used = true
+	_, u, ok := f.userByID(t.userID)
+	f.mu.Unlock()
+	if !ok || f.currentMember(u.p.MemberID) == nil || !u.p.HasRole(auth.RoleMember) {
+		return nil, auth.ErrInvalidToken
+	}
+	return forMethod(u.p, auth.LoginMethodMagicLink), nil
+}
+
+func (f *fakeAuth) VerifySession(_ context.Context, token string) (*auth.SessionStatus, error) {
+	f.mu.Lock()
+	f.verifies++
+	p := f.sessions[token]
+	f.mu.Unlock()
+	if p == nil {
+		return nil, nil
+	}
+	st := &auth.SessionStatus{UserID: p.UserID, Member: p.HasRole(auth.RoleMember), Committee: p.IsCommittee()}
+	if m := f.currentMember(p.MemberID); m != nil {
+		st.MemberID, st.Expiry = m.ID, m.MembershipExpiry
+	}
+	return st, nil
 }

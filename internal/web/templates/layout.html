@@ -24,6 +24,7 @@
             {{if permit .P "members.create"}}{{template "navitem" (dict "Href" (url "/admin/members/new") "Icon" "user-plus" "Label" "New member" "Active" (eq .Nav "new"))}}{{end}}
             {{if permit .P "payments.record"}}{{template "navitem" (dict "Href" (url "/admin/payments") "Icon" "cash" "Label" "Payments" "Active" (eq .Nav "payments"))}}{{end}}
             {{if permit .P "members.emaillists"}}{{template "navitem" (dict "Href" (url "/admin/emails") "Icon" "mail" "Label" "Email lists" "Active" (eq .Nav "emails"))}}{{end}}
+            {{if .P.MemberID}}{{template "navitem" (dict "Href" (url "/me") "Icon" "scuba-mask" "Label" "My membership" "Active" (eq .Nav "me"))}}{{end}}
           </ul>
         </nav>
         {{if ne .Nav "members"}}
@@ -74,6 +75,32 @@
     </main>
     <footer class="footer footer-transparent d-print-none">
       <div class="container-fluid small text-secondary">Clidive BSAC 410 · membership portal</div>
+    </footer>
+  </div>
+</div>
+{{else if .P}}
+{{/* Signed in without committee access (members): only their own page. */}}
+<div class="page">
+  <header class="navbar member-bar d-print-none" data-bs-theme="dark">
+    <div class="container-xl">
+      <a class="navbar-brand" href="{{url "/"}}" aria-label="Clidive membership home">{{template "wordmark" (dict "Shell" true)}}</a>
+      <nav aria-label="Main">
+        <ul class="navbar-nav flex-row">
+          {{if .P.MemberID}}{{template "navitem" (dict "Href" (url "/me") "Icon" "scuba-mask" "Label" "My membership" "Active" (eq .Nav "me"))}}{{end}}
+        </ul>
+      </nav>
+      <form method="post" action="{{url "/logout"}}" class="ms-auto">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <button type="submit" class="btn btn-sm btn-outline-light">{{icon "logout"}} Sign out</button>
+      </form>
+    </div>
+  </header>
+  <div class="page-wrapper">
+    <main class="page-body" id="main" tabindex="-1">
+      <div class="container-xl">{{template "content" .}}</div>
+    </main>
+    <footer class="footer footer-transparent d-print-none">
+      <div class="container-xl small text-secondary">Clidive BSAC 410 · membership portal</div>
     </footer>
   </div>
 </div>

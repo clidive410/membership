@@ -99,3 +99,44 @@ func TestMigrateOnStart(t *testing.T) {
 		t.Error("expected error for invalid MIGRATE_ON_START")
 	}
 }
+
+func TestMailAndMemberLogin(t *testing.T) {
+	base := func() map[string]string {
+		return map[string]string{"DB_DSN": "u:p@tcp(db:3306)/m", "SESSION_SECRET": "0123456789abcdef0123456789abcdef"}
+	}
+	c, err := Load(env(base()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.SMTPHost != "" || c.SMTPPort != 587 || c.MemberSessionTTL != 30*24*time.Hour || c.LoginReturnURL != nil ||
+		c.MailFrom != "membership@clidive.org" || c.Development() {
+		t.Errorf("defaults: %+v", c)
+	}
+
+	pw := filepath.Join(t.TempDir(), "smtp_pw")
+	if err := os.WriteFile(pw, []byte("smtp-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := base()
+	m["SMTP_HOST"], m["SMTP_PORT"], m["SMTP_USERNAME"], m["SMTP_PASSWORD_FILE"] = "smtp.example.org", "465", "AKIAEXAMPLE", pw
+	m["MAIL_FROM"], m["LOGIN_RETURN_URL"], m["LOG_FORMAT"] = "Clidive Membership <membership@clidive.org>", "https://www.clidive.org/", "text"
+	c, err = Load(env(m))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.SMTPHost != "smtp.example.org" || c.SMTPPort != 465 || c.SMTPPassword != "smtp-secret" ||
+		c.LoginReturnURL.Host != "www.clidive.org" || !c.Development() {
+		t.Errorf("config: %+v", c)
+	}
+
+	for k, v := range map[string]string{
+		"SMTP_PORT": "smtp", "MAIL_FROM": "not an address", "LOGIN_RETURN_URL": "/relative",
+		"MEMBER_SESSION_TTL": "-1h", "SMTP_USERNAME": "only-a-user",
+	} {
+		m := base()
+		m[k] = v
+		if _, err := Load(env(m)); err == nil {
+			t.Errorf("%s=%q: expected an error", k, v)
+		}
+	}
+}
