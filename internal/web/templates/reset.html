@@ -1,0 +1,37 @@
+{{define "content"}}
+<div class="container container-tight py-4">
+  <div class="text-center mb-4">
+    <span class="login-brand">{{template "wordmark" .}}</span>
+  </div>
+  <div class="card card-md">
+    <div class="card-body">
+      <h1 class="h2 text-center mb-3">Set your password</h1>
+      {{if .Data.Invalid}}
+      <div class="alert alert-danger" role="alert"><div class="alert-icon">{{icon "alert-triangle"}}</div><div>This link has expired or has already been used.</div></div>
+      <a class="btn btn-primary w-100" href="{{url "/password/forgot"}}">{{icon "mail"}} Get a new link</a>
+      {{else}}
+      {{with .Data.Error}}<div class="alert alert-danger" role="alert"><div class="alert-icon">{{icon "alert-triangle"}}</div><div>{{.}}</div></div>{{end}}
+      <form method="post" action="{{url "/password/reset"}}">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <input type="hidden" name="token" value="{{.Data.Token}}">
+        <div class="mb-3">
+          <label class="form-label" for="username">Login</label>
+          <input class="form-control" id="username" name="username" type="email" autocomplete="username" value="{{.Data.Email}}" readonly>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="password">New password</label>
+          <input class="form-control" id="password" name="password" type="password" autocomplete="new-password" required minlength="12" aria-describedby="password-hint" autofocus>
+          <small class="form-hint" id="password-hint">At least 12 characters. A few unrelated words make a good one.</small>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="password2">Repeat the new password</label>
+          <input class="form-control" id="password2" name="password2" type="password" autocomplete="new-password" required minlength="12">
+        </div>
+        <button type="submit" class="btn btn-primary w-100">{{icon "lock"}} Set password and sign in</button>
+      </form>
+      <p class="text-secondary small mt-3 mb-0">Setting a password signs you out everywhere else.</p>
+      {{end}}
+    </div>
+  </div>
+</div>
+{{end}}

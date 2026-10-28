@@ -9,6 +9,8 @@
 
 {{define "flash"}}{{with .Flash}}<div class="alert alert-success" role="status">
   <div class="alert-icon">{{icon "circle-check"}}</div><div>{{.}}</div>
+</div>{{end}}{{with .FlashErr}}<div class="alert alert-danger" role="alert">
+  <div class="alert-icon">{{icon "alert-triangle"}}</div><div>{{.}}</div>
 </div>{{end}}{{end}}
 
 {{/* input renders a labelled text-like field with inline validation.
@@ -51,3 +53,18 @@
     <li class="page-item{{if not .Next}} disabled{{end}}">{{if .Next}}<a class="page-link" href="{{.Next}}" rel="next">Next ›</a>{{else}}<span class="page-link" aria-disabled="true">Next ›</span>{{end}}</li>
   </ul>
 </nav>{{end}}{{end}}
+
+{{/* accessform: role select and invite button for one login. Keys: V (accessView), CSRF, ID (select id). */}}
+{{define "accessform"}}{{$v := .V}}<form method="post" action="{{$v.Action}}" class="access-form d-flex flex-wrap gap-2 align-items-end">
+  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+  {{- if $v.Self}}
+  <input type="hidden" name="access" value="{{$v.Current}}">
+  <button type="submit" name="action" value="invite" class="btn btn-outline-secondary btn-sm">{{icon "mail"}} Send reset email</button>
+  <small class="form-hint w-100">This is your own login: you cannot remove your own access. Ask another admin.</small>
+  {{- else}}
+  <div><label class="form-label small mb-1" for="{{.ID}}">Role</label>
+    <select class="form-select form-select-sm" id="{{.ID}}" name="access">{{range $v.Levels}}<option value="{{.}}"{{if eq . $v.Current}} selected{{end}}>{{accessName .}}</option>{{end}}</select></div>
+  <button type="submit" name="action" value="save" class="btn btn-primary btn-sm">{{icon "device-floppy"}} Save</button>
+  <button type="submit" name="action" value="invite" class="btn btn-outline-secondary btn-sm">{{icon "mail"}} Send invite / reset email</button>
+  {{- end}}
+</form>{{end}}

@@ -1,0 +1,45 @@
+{{define "subtitle"}}<div class="text-secondary">Who can sign in to the portal, and with which role.</div>{{end}}
+{{define "content"}}
+<section class="card mb-3" aria-labelledby="invite-h">
+  <div class="card-header"><h2 class="card-title" id="invite-h">{{icon "user-plus"}} Invite by email</h2></div>
+  <div class="card-body">
+    <p class="text-secondary">For committee members without a member record (members are invited from their member page). Creates the login if needed, grants the role and emails a link to set a password, valid for 7 days.</p>
+    <form method="post" action="{{url "/admin/users"}}" class="row g-2 align-items-end">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <div class="col-md-6"><label class="form-label" for="invite-email">Email address</label>
+        <input class="form-control" id="invite-email" name="email" type="email" required maxlength="254" autocomplete="off"></div>
+      <div class="col-md-3"><label class="form-label" for="invite-access">Role</label>
+        <select class="form-select" id="invite-access" name="access">
+          <option value="membership_manager">{{accessName "membership_manager"}}</option>
+          <option value="admin">{{accessName "admin"}}</option>
+          <option value="member">{{accessName "member"}}</option>
+        </select></div>
+      <div class="col-md-3"><button type="submit" class="btn btn-primary w-100">{{icon "mail"}} Send invitation</button></div>
+    </form>
+  </div>
+</section>
+
+<section class="card" aria-labelledby="logins-h">
+  <div class="card-header"><h2 class="card-title" id="logins-h">Logins</h2><span class="card-actions text-secondary small">{{len .Data.Rows}} login(s)</span></div>
+  <div class="table-responsive">
+    <table class="table table-vcenter card-table">
+      <thead><tr><th scope="col">Login</th><th scope="col">Member</th><th scope="col">Roles</th><th scope="col">Status</th><th scope="col">Password</th><th scope="col">Last sign-in (UTC)</th><th scope="col">Access</th></tr></thead>
+      <tbody>
+      {{range .Data.Rows}}{{$u := .User}}
+      <tr id="user-{{$u.ID}}">
+        <td>{{$u.Email}}{{if .Self}} <span class="badge bg-azure-lt">you</span>{{end}}</td>
+        <td>{{if $u.MemberID.Valid}}<a href="{{url "/admin/members/"}}{{$u.MemberID.Int64}}">{{or $u.MemberName "(no name)"}}</a> <span class="text-secondary small">#{{$u.MemberID.Int64}}</span>{{else}}<span class="text-secondary">—</span>{{end}}</td>
+        <td>{{range $u.Roles}}<span class="badge bg-secondary-lt me-1">{{.}}</span>{{else}}<span class="text-secondary">none</span>{{end}}</td>
+        <td>{{if $u.Disabled}}<span class="badge bg-red-lt">disabled</span>{{else}}<span class="badge bg-green-lt">enabled</span>{{end}}</td>
+        <td>{{if $u.HasPassword}}set{{else}}<span class="text-secondary">not set</span>{{end}}</td>
+        <td class="text-nowrap num">{{or (dateTime $u.LastLoginAt) "never"}}</td>
+        <td>{{template "accessform" (dict "V" . "CSRF" $.CSRF "ID" (printf "access-%d" $u.ID))}}</td>
+      </tr>
+      {{else}}
+      <tr><td colspan="7" class="text-secondary">No logins yet.</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{end}}

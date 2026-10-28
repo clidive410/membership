@@ -52,7 +52,7 @@ Commands:
                    applies pending migrations first, under a MariaDB named lock
   migrate          Apply database migrations and exit
   migrate-legacy   Import members from the legacy database (-legacy-dsn, -dry-run)
-  user             Manage users: set-password, grant, revoke, link, disable, enable, list
+  user             Manage users: invite, set-password, grant, revoke, link, disable, enable, list
   healthcheck      Exit 0 if the local server's /healthz answers 200 (HEALTHCHECK_URL overrides)
   seed-dev         Insert invented members into an EMPTY database (-n 40, -seed 1)
   version          Print the version
@@ -313,9 +313,12 @@ func migrateLegacy(ctx context.Context, args []string, out io.Writer) error {
 
 func userCmd(ctx context.Context, args []string, stdin io.Reader, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: membership user set-password|grant|revoke|link|disable|enable|list [flags]")
+		return errors.New("usage: membership user invite|set-password|grant|revoke|link|disable|enable|list [flags]")
 	}
 	sub, args := args[0], args[1:]
+	if sub == "invite" {
+		return inviteCmd(ctx, args, out)
+	}
 	fs := flag.NewFlagSet("user "+sub, flag.ContinueOnError)
 	email := fs.String("email", "", "user email (login identity)")
 	role := fs.String("role", "", "role: admin, membership_manager or member")

@@ -1,0 +1,33 @@
+{{define "content"}}
+<div class="container container-tight py-4">
+  <div class="text-center mb-4">
+    <span class="login-brand">{{template "wordmark" .}}</span>
+  </div>
+  <div class="card card-md">
+    {{if .Data.Sent}}
+    <div class="card-body text-center">
+      <div class="mb-3 linksent-icon" aria-hidden="true">{{icon "mail"}}</div>
+      <h1 class="h2 mb-3">Check your email</h1>
+      <p>If that address belongs to a committee login or a login with a password, we've emailed a link to set a new password.</p>
+      <p class="text-secondary">The link works once and expires in 30 minutes. It can take a minute or two to arrive; please also check your spam folder.</p>
+      <a class="btn btn-outline-secondary mt-2" href="{{url "/login"}}">{{icon "arrow-left"}} Back to sign in</a>
+    </div>
+    {{else}}
+    <div class="card-body">
+      <h1 class="h2 text-center mb-3">Forgotten your password?</h1>
+      <p class="text-secondary">For committee logins. Enter your email address and we'll send you a link to set a new password. Members without a password can simply <a href="{{url "/login"}}">get a sign-in link</a>.</p>
+      {{with .Data.Error}}<div class="alert alert-danger" role="alert"><div class="alert-icon">{{icon "alert-triangle"}}</div><div>{{.}}</div></div>{{end}}
+      <form method="post" action="{{url "/password/forgot"}}">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <div class="mb-3">
+          <label class="form-label" for="email">Email address</label>
+          <input class="form-control" id="email" name="email" type="email" autocomplete="username" required maxlength="254" value="{{.Data.Email}}" autofocus>
+        </div>
+        <button type="submit" class="btn btn-primary w-100">{{icon "mail"}} Email me a reset link</button>
+      </form>
+      <p class="text-center mt-3 mb-0"><a href="{{url "/login"}}">{{icon "arrow-left"}} Back to sign in</a></p>
+    </div>
+    {{end}}
+  </div>
+</div>
+{{end}}

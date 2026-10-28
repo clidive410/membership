@@ -59,6 +59,7 @@ type User struct {
 	Disabled    bool
 	Roles       []Role
 	LastLoginAt sql.NullTime
+	MemberName  string // linked member's name ("" if none)
 }
 
 func (s *Store) rolesOf(ctx context.Context, userID int64) ([]Role, error) {
@@ -140,14 +141,14 @@ func (s *Store) RevokeRole(ctx context.Context, userID int64, r Role) error {
 
 // ListUsers returns all users with their roles.
 func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT id, email, member_id, password_hash IS NOT NULL, disabled, last_login_at FROM users ORDER BY email")
+	rows, err := s.DB.QueryContext(ctx, "SELECT "+userColumns+" FROM users u LEFT JOIN members m ON m.id = u.member_id ORDER BY u.email")
 	if err != nil {
 		return nil, err
 	}
 	var out []User
 	for rows.Next() {
 		var u User
-		if err := rows.Scan(&u.ID, &u.Email, &u.MemberID, &u.HasPassword, &u.Disabled, &u.LastLoginAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.MemberID, &u.HasPassword, &u.Disabled, &u.LastLoginAt, &u.MemberName); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -274,18 +275,27 @@ type execer interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
-func createLoginToken(ctx context.Context, db execer, userID int64, ttl time.Duration) (string, error) {
+// Purposes of login_tokens rows. A token is only accepted for the purpose
+// it was issued for, so a sign-in link cannot reset a password and a
+// password-reset link cannot start a member session.
+const (
+	PurposeMagicLink     = "magic_link"     // emailed member sign-in link
+	PurposePasswordReset = "password_reset" // password reset or invitation link
+)
+
+func createLoginToken(ctx context.Context, db execer, userID int64, purpose string, ttl time.Duration) (string, error) {
 	token := NewToken()
-	_, err := db.ExecContext(ctx, "INSERT INTO login_tokens (token_hash, user_id, purpose, expires_at) VALUES (?, ?, 'magic_link', ?)",
-		HashToken(token), userID, time.Now().UTC().Add(ttl))
+	_, err := db.ExecContext(ctx, "INSERT INTO login_tokens (token_hash, user_id, purpose, expires_at) VALUES (?, ?, ?, ?)",
+		HashToken(token), userID, purpose, time.Now().UTC().Add(ttl))
 	return token, err
 }
 
-// consumeLoginToken atomically marks a token used and returns its user id.
-func consumeLoginToken(ctx context.Context, db execer, token string) (int64, error) {
+// consumeLoginToken atomically marks a token of the given purpose used and
+// returns its user id.
+func consumeLoginToken(ctx context.Context, db execer, token, purpose string) (int64, error) {
 	h := HashToken(strings.TrimSpace(token))
 	res, err := db.ExecContext(ctx, `UPDATE login_tokens SET used_at = UTC_TIMESTAMP()
-		WHERE token_hash = ? AND purpose = 'magic_link' AND used_at IS NULL AND expires_at > UTC_TIMESTAMP()`, h)
+		WHERE token_hash = ? AND purpose = ? AND used_at IS NULL AND expires_at > UTC_TIMESTAMP()`, h, purpose)
 	if err != nil {
 		return 0, err
 	}
@@ -302,14 +312,14 @@ func consumeLoginToken(ctx context.Context, db execer, token string) (int64, err
 // CreateLoginToken issues a single-use login token for userID. Only its
 // SHA-256 is stored. RequestLoginLink is the normal entry point.
 func (s *Store) CreateLoginToken(ctx context.Context, userID int64, ttl time.Duration) (string, error) {
-	return createLoginToken(ctx, s.DB, userID, ttl)
+	return createLoginToken(ctx, s.DB, userID, PurposeMagicLink, ttl)
 }
 
 // ConsumeLoginToken atomically marks a token used and returns its user id
 // (ErrInvalidToken if it is unknown, used or expired). LoginWithToken is
 // the normal entry point.
 func (s *Store) ConsumeLoginToken(ctx context.Context, token string) (int64, error) {
-	return consumeLoginToken(ctx, s.DB, token)
+	return consumeLoginToken(ctx, s.DB, token, PurposeMagicLink)
 }
 
 func (s *Store) inTx(ctx context.Context, fn func(tx *sql.Tx) error) error {
@@ -398,7 +408,7 @@ func (s *Store) RequestLoginLink(ctx context.Context, email string, ttl time.Dur
 		if _, err := tx.ExecContext(ctx, "INSERT IGNORE INTO user_roles (user_id, role) VALUES (?, ?)", userID, string(RoleMember)); err != nil {
 			return err
 		}
-		token, err := createLoginToken(ctx, tx, userID, ttl)
+		token, err := createLoginToken(ctx, tx, userID, PurposeMagicLink, ttl)
 		if err != nil {
 			return err
 		}
@@ -422,7 +432,7 @@ func (s *Store) LoginWithToken(ctx context.Context, token string) (*Principal, e
 	var userID int64
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		var err error
-		userID, err = consumeLoginToken(ctx, tx, token)
+		userID, err = consumeLoginToken(ctx, tx, token, PurposeMagicLink)
 		return err
 	})
 	if err != nil {

@@ -11,8 +11,11 @@ Infrastructure lives in [`clidive410/infra`](https://github.com/clidive410/infra
 - Roles: `admin` (webmaster/committee), `membership_manager`, and `member`.
 - Members sign in with a single-use link emailed to their primary address
   and see their own record at `/me` (read-only). The committee signs in with
-  a password (argon2id). Server-side sessions, CSRF protection and an audit
-  log of every member and payment change and of member sign-ins.
+  a password (argon2id), set from an emailed invitation or reset link, so
+  nobody has to share a password. Admins manage logins and roles in the UI
+  (`/admin/users`) or with `membership user`. Server-side sessions, CSRF
+  protection and an audit log of every member, payment and access change
+  and of sign-ins.
 - `GET /auth/verify` lets Caddy `forward_auth` tell the WordPress site
   whether the visitor is a signed-in club member, and whether their
   membership has expired.
@@ -58,12 +61,14 @@ export BASE_URL='http://localhost:8080' COOKIE_SECURE=false LOG_FORMAT=text
 
 go run ./cmd/membership migrate
 go run ./cmd/membership user set-password -email you@example.org -role admin   # prompts for a password
+# or: go run ./cmd/membership user invite -email you@example.org -role admin   # the set-password link is logged
 go run ./cmd/membership serve            # add --migrate to apply migrations first
 ```
 
 Then open <http://localhost:8080/> and sign in. Without `SMTP_HOST`, and
-with `LOG_FORMAT=text`, member sign-in emails (including the link) are
-written to the server log instead of being sent.
+with `LOG_FORMAT=text`, emails (sign-in, password reset and invitation
+links included) are written to the log (of the server, or of the `user
+invite` command) instead of being sent.
 
 For UI work without real member data, use a scratch database and invented
 members (`seed-dev` refuses to run on a database that already has members):
@@ -118,7 +123,7 @@ contents are trimmed of surrounding whitespace. If both are set, `NAME` wins.
 | `HEALTHCHECK_URL` | (derived)               | Only for `membership healthcheck`: URL to probe instead of `http://127.0.0.1:<port of LISTEN_ADDR><BASE_URL path>/healthz`. |
 | `LOG_LEVEL`      | `info`                   | `debug`, `info`, `warn`, `error`. |
 | `LOG_FORMAT`     | `json`                   | `json` or `text` (log/slog). |
-| `MAIL_FROM`      | `membership@clidive.org` | Sender of the sign-in emails: `addr@example.org` or `Name <addr@example.org>`. |
+| `MAIL_FROM`      | `membership@clidive.org` | Sender of all emails (sign-in, password reset, invitation): `addr@example.org` or `Name <addr@example.org>`. |
 | `SMTP_HOST`      | (none)                   | SMTP submission server. Unset: emails are logged when `LOG_FORMAT=text` (development); otherwise every send fails with an error saying SMTP is not configured (and `serve` logs an error at start). |
 | `SMTP_PORT`      | `587`                    | `587` uses STARTTLS, `465` implicit TLS. TLS is required (except to a loopback server); the app never falls back to clear text. |
 | `SMTP_USERNAME`, `SMTP_PASSWORD` | (none)   | SMTP AUTH PLAIN credentials (set both or neither). Usually given as `SMTP_USERNAME_FILE`/`SMTP_PASSWORD_FILE`. |
@@ -137,7 +142,7 @@ admins need not have one.
 
 | Role                 | Can |
 |----------------------|-----|
-| `admin`              | Everything: create, edit all fields, archive/restore, payments, CSV export, email lists, history. |
+| `admin`              | Everything: create, edit all fields, archive/restore, payments, CSV export, email lists, history, and portal access (logins and roles, `/admin/users`). |
 | `membership_manager` | View members; edit membership fields (Clidive type/expiry/join date, BSAC details, query/notes); record and delete payments; bulk payments; view history. Personal and club fields are shown read-only. |
 | `member`             | Sign in with an emailed link and view their own record at `/me` (read-only). No access to `/admin` (403). Granted automatically on the first link request. Self-service editing (own contact, address and emergency details only) is planned. |
 
@@ -146,6 +151,7 @@ rules use field groups (`internal/members/fields.go`): the server applies only
 the groups the user may edit, whatever the form contains.
 
 ```sh
+membership user invite -email someone@example.org -role admin|membership_manager [-member-id 123]  # emails a set-password link
 membership user set-password -email someone@example.org [-role admin]  # create/reset; reads stdin if not a terminal
 membership user grant  -email someone@example.org -role membership_manager
 membership user revoke -email someone@example.org -role admin
@@ -154,7 +160,62 @@ membership user disable|enable -email someone@example.org
 membership user list
 ```
 
-In the container: `docker exec -it <container> membership user set-password -email ... -role admin`.
+In the container: `docker exec -it <container> membership user invite -email ... -role admin`
+(the container has the `SMTP_*`, `BASE_URL` and `SESSION_SECRET` settings
+`user invite` needs).
+
+### Managing access
+
+Admins see **Portal access** in the sidebar (`/admin/users`, admin only):
+every login with its linked member, roles, enabled/disabled, whether a
+password is set and the last sign-in. Each member page also has a
+**Portal access** card for the login linked to the member, or else the
+login with the member's primary email (read-only for membership managers).
+
+Both offer one role select and two buttons:
+
+- **Save** sets the access level:
+  - `none` revokes every role, **disables** the login, ends all its
+    sessions and spends its outstanding links. The row is kept (audit
+    history); choosing a role again re-enables it.
+  - `member`, `membership_manager`, `admin` create the login if there is
+    none (without a password), enable it, set that role and remove the
+    other committee role. The `member` role is kept, and added for a login
+    linked to a member, so that committee members can still use email
+    sign-in links.
+- **Send invite / reset email** applies the chosen role, then emails a
+  link to set a password (valid 7 days), as `membership user invite` does.
+  It is also how an admin resends a reset link for someone else.
+
+"Invite by email" at the top of `/admin/users` is for committee members
+without a member record (email + role). An admin cannot demote or disable
+their own login (the page says so); another admin must do it. Every
+change writes an `auth.access` or `auth.invite` audit entry, shown in the
+member's history when the login is linked to a member. All forms are
+CSRF-protected. The UI and the CLI call the same functions
+(`auth.Store.SetAccess`, `auth.Store.InviteUser`).
+
+### Onboarding a new committee admin
+
+1. If they are a member, open their member page, choose `admin` (or
+   `membership_manager`) under **Portal access** and press **Send invite /
+   reset email**. Otherwise use **Invite by email** on `/admin/users`, or
+   on the server:
+   `docker exec <container> membership user invite -email new.admin@example.org -role admin`
+   (`-member-id N` links a member record whose primary email differs).
+2. They receive "You've been given access to the Clidive members portal"
+   with a link to `/password/reset?token=...`, valid 7 days, choose a
+   password (at least 12 characters) and are signed in.
+3. Later they sign in at `/login` with "Committee: sign in with a
+   password"; "Forgotten your password?" sends a new link.
+4. To remove access, set their role to `none` (or
+   `membership user revoke` / `disable`).
+
+**Amazon SES sandbox:** while the SES account is in the sandbox, SES only
+delivers to verified addresses. Verify the new admin's address in SES
+(or move the account out of the sandbox) before inviting them, otherwise
+the send fails (`user invite` exits with an error; the UI says the email
+could not be sent) and you have to re-send it.
 
 ## Importing the legacy data
 
@@ -167,8 +228,8 @@ membership migrate-legacy -legacy-dsn 'user:pw@tcp(legacy-host:3306)/ironmonger'
   (`DeletedOn` becomes `deleted_at`). Member ids are kept.
 - **Not imported:** `email`, `surname`, `password` (plain text in the legacy
   database), `passhint`, `admin`, `session`, `LastLogin`. These columns are
-  never selected. Legacy logins are not migrated; committee users are created
-  with `membership user set-password`.
+  never selected. Legacy logins are not migrated; committee users are
+  invited with `membership user invite` (or the admin UI).
 - `last_paid` becomes one payment row (`source = legacy`, no amount).
 - Zero dates (`0000-00-00`) become NULL. The free-text `ClidiveJoinDate` is
   parsed (`Y-M-D`, `DD/MM/YY`, `DD.MM.YY`). Anything it cannot parse is kept in
@@ -236,6 +297,39 @@ shown). Changes are requested by email to membership@clidive.org.
 
 Logs carry user ids and request ids only: never the email address or the
 token. The SMTP sender logs the recipient's domain.
+
+## Password reset (committee logins)
+
+1. Under the committee password form, `GET /login` links to "Forgotten
+   your password?" (`GET /password/forgot`, an email field).
+2. `POST /password/forgot` (CSRF-protected) always answers "If that
+   address belongs to a committee login or a login with a password, we've
+   emailed a link". As for sign-in links, the lookup and email happen in
+   the background, and requests are limited to 20 per IP address and 5
+   per email address per 15 minutes (429 beyond; separate counters from
+   the sign-in link). A link is issued only for an **enabled** user with a
+   committee role (`admin`, `membership_manager`) or a password: a
+   single-use token with purpose `password_reset`, valid 30 minutes, only
+   its SHA-256 stored in `login_tokens`, and an `auth.password_reset_link`
+   audit entry. The email links to `BASE_URL/password/reset?token=...`.
+3. `GET /password/reset?token=...` shows "Set your password" (new password
+   twice) without spending the token; an unknown, used, expired or
+   wrong-purpose token shows "This link has expired or has already been
+   used". Invitations use the same page.
+4. `POST /password/reset` requires matching passwords of at least 12
+   characters (otherwise the form is shown again and the token stays
+   valid). It then, in one transaction, spends the token (purpose
+   checked), stores the argon2id hash, spends any other outstanding reset
+   or invitation tokens of the user, deletes all their sessions and writes
+   an `auth.password_reset` audit entry. It starts a password session
+   (`SESSION_TTL`, full roles) and redirects to `/admin/members` (`/me`
+   for a member without committee roles).
+
+Login tokens carry a purpose (`magic_link` or `password_reset`) that is
+checked when they are spent, so a sign-in link cannot reset a password
+and a reset link cannot start a member session. The reset flow never
+grants roles and never re-enables a disabled login: it only changes the
+password of an existing user.
 
 ## `/auth/verify` (Caddy forward_auth)
 

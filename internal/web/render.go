@@ -19,7 +19,7 @@ import (
 
 type pageTemplate struct{ t *template.Template }
 
-var pageNames = []string{"login", "linksent", "me", "members", "member", "payments", "emails", "error"}
+var pageNames = []string{"login", "linksent", "forgot", "reset", "users", "me", "members", "member", "payments", "emails", "error"}
 
 // typeColors maps the legacy membership type ids to badge colours; unknown
 // types fall back to the default badge.
@@ -143,11 +143,12 @@ func mustParseTemplates(base string) map[string]*pageTemplate {
 			}
 			return template.URL("?" + v.Encode())
 		},
-		"itoa":   func(i int64) string { return strconv.FormatInt(i, 10) },
-		"permit": func(p *auth.Principal, perm string) bool { return p.Can(auth.Permission(perm)) },
-		"icon":   icon,
-		"dict":   dict,
-		"list":   func(v ...string) []string { return v },
+		"itoa":       func(i int64) string { return strconv.FormatInt(i, 10) },
+		"permit":     func(p *auth.Principal, perm string) bool { return p.Can(auth.Permission(perm)) },
+		"icon":       icon,
+		"accessName": func(a auth.Access) string { return accessName(a) },
+		"dict":       dict,
+		"list":       func(v ...string) []string { return v },
 		// typeColor picks a Tabler badge colour for a membership type.
 		"typeColor": func(id sql.NullInt64) string {
 			if !id.Valid {
@@ -187,6 +188,7 @@ type page struct {
 	P         *auth.Principal
 	CSRF      string
 	Flash     string
+	FlashErr  string // error flash (fixed message, see flashErrors)
 	Base      string
 	Data      any
 	FormError string
@@ -207,21 +209,36 @@ var flashes = map[string]string{
 	"payment":         "Payment recorded.",
 	"payment-deleted": "Payment deleted.",
 	"loggedout":       "You have been signed out.",
+	"password-set":    "Your password has been set.",
+	"access-saved":    "Portal access updated.",
+	"access-revoked":  "Portal access removed: the login is disabled and signed out everywhere.",
+	"invite-sent":     "Invitation emailed: it carries a link to set a password, valid for 7 days.",
+}
+
+// flashErrors are fixed error messages selected by ?flash=.
+var flashErrors = map[string]string{
+	"self-lockout":  "You cannot remove your own admin access. Ask another admin to change it.",
+	"choose-role":   "Choose a role before sending an invitation.",
+	"link-conflict": "This login or member record is already linked to another one. Fix the link with `membership user link` first.",
+	"no-email":      "This member has no primary email address, so they cannot have a login.",
+	"bad-email":     "Please enter a valid email address.",
+	"invite-failed": "The access was saved, but the invitation email could not be sent. Check the mail settings and try again.",
 }
 
 // navFor maps a page template to its sidebar entry.
-var navFor = map[string]string{"members": "members", "member": "members", "payments": "payments", "emails": "emails", "me": "me"}
+var navFor = map[string]string{"users": "users", "members": "members", "member": "members", "payments": "payments", "emails": "emails", "me": "me"}
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name, title string, data any) {
 	pg := page{
-		Title:  title,
-		Nav:    navFor[name],
-		Status: status,
-		P:      principalFrom(r.Context()),
-		CSRF:   s.csrfToken(w, r),
-		Flash:  flashes[r.URL.Query().Get("flash")],
-		Base:   s.opt.BasePath,
-		Data:   data,
+		Title:    title,
+		Nav:      navFor[name],
+		Status:   status,
+		P:        principalFrom(r.Context()),
+		CSRF:     s.csrfToken(w, r),
+		Flash:    flashes[r.URL.Query().Get("flash")],
+		FlashErr: flashErrors[r.URL.Query().Get("flash")],
+		Base:     s.opt.BasePath,
+		Data:     data,
 	}
 	if d, ok := data.(memberData); ok && d.New {
 		pg.Nav = "new"
