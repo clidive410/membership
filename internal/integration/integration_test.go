@@ -292,6 +292,19 @@ func TestStoresAgainstMariaDB(t *testing.T) {
 	if len(all) != 3 || all[0].ID != 101 {
 		t.Errorf("all list sorted by last paid: %+v", all)
 	}
+	withExpiry := 0
+	for _, m := range cur {
+		if m.MembershipExpiry.Valid {
+			withExpiry++
+		}
+	}
+	expired, _ := store.ListMembers(f.ctx, members.Filter{Status: members.StatusExpired, Today: time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)})
+	if withExpiry == 0 || len(expired) != withExpiry {
+		t.Errorf("expired list far in the future should hold every current member with an expiry date: %d vs %d", len(expired), withExpiry)
+	}
+	if expired, _ = store.ListMembers(f.ctx, members.Filter{Status: members.StatusExpired, Today: time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC)}); len(expired) != 0 {
+		t.Errorf("expired list far in the past should be empty, got %d", len(expired))
+	}
 	found, _ := store.ListMembers(f.ctx, members.Filter{Query: "odd 100%", Status: members.StatusAll})
 	if len(found) != 0 {
 		t.Errorf("LIKE wildcards must be escaped, got %d", len(found))

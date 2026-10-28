@@ -183,6 +183,10 @@ func TestMemberListFiltersAndEscaping(t *testing.T) {
 	if !strings.Contains(body, "Current") || strings.Contains(body, "Anchor") {
 		t.Error("search across all statuses failed")
 	}
+	body = e.do(t, "GET", "/admin/members?status=expired", tok, nil).Body.String()
+	if !strings.Contains(body, "Buoy") || strings.Contains(body, "Anchor") || strings.Contains(body, "Current</a>") {
+		t.Error("expired filter should list only current members whose Clidive expiry has passed")
+	}
 }
 
 func TestPermissions(t *testing.T) {

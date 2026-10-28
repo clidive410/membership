@@ -7,6 +7,7 @@
   <summary class="btn btn-outline-secondary" aria-haspopup="menu">{{icon "download"}} Export CSV<span class="caret" aria-hidden="true"></span></summary>
   <div class="dropdown-menu dropdown-menu-end" role="menu">
     <a class="dropdown-item" role="menuitem" href="{{url "/admin/export.csv"}}">{{icon "file-spreadsheet"}} Current members<small>Everyone who is not archived</small></a>
+    <a class="dropdown-item" role="menuitem" href="{{url "/admin/export.csv"}}?status=expired">{{icon "file-spreadsheet"}} Clidive expired<small>Current members whose expiry has passed</small></a>
     <a class="dropdown-item" role="menuitem" href="{{url "/admin/export.csv"}}?status=all">{{icon "file-spreadsheet"}} All members<small>Including archived</small></a>
   </div>
 </details>
@@ -36,6 +37,7 @@
       <select id="status" name="status" class="form-select">
         <option value="current" {{if eq $d.Filter.Status "current"}}selected{{end}}>Current members</option>
         <option value="notlapsed" {{if eq $d.Filter.Status "notlapsed"}}selected{{end}}>Current, excluding Lapsed</option>
+        <option value="expired" {{if eq $d.Filter.Status "expired"}}selected{{end}}>Current, Clidive expired</option>
         <option value="archived" {{if eq $d.Filter.Status "archived"}}selected{{end}}>Archived members</option>
         <option value="all" {{if eq $d.Filter.Status "all"}}selected{{end}}>All, including archived</option>
       </select>

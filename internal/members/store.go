@@ -26,6 +26,7 @@ type Status string
 const (
 	StatusCurrent   Status = "current"
 	StatusNotLapsed Status = "notlapsed" // current, excluding the Lapsed type
+	StatusExpired   Status = "expired"   // current, Clidive membership expiry before today (see Member.Expired)
 	StatusArchived  Status = "archived"
 	StatusAll       Status = "all"
 )
@@ -33,7 +34,7 @@ const (
 // ParseStatus returns a valid Status, defaulting to StatusCurrent.
 func ParseStatus(s string) Status {
 	switch Status(s) {
-	case StatusNotLapsed, StatusArchived, StatusAll:
+	case StatusNotLapsed, StatusExpired, StatusArchived, StatusAll:
 		return Status(s)
 	}
 	return StatusCurrent
@@ -59,7 +60,8 @@ type Filter struct {
 	Query  string // free text over names, emails, BSAC number, postcode
 	TypeID int64  // 0 = any; -1 = no type set
 	Status Status
-	Sort   string // key of SortColumns, default last_name
+	Today  time.Time // reference day for StatusExpired; zero means time.Now()
+	Sort   string    // key of SortColumns, default last_name
 	Desc   bool
 }
 
@@ -123,6 +125,13 @@ func (s *Store) ListMembers(ctx context.Context, f Filter) ([]Member, error) {
 	switch f.Status {
 	case StatusNotLapsed:
 		where = append(where, "m.deleted_at IS NULL", fmt.Sprintf("(m.membership_type_id IS NULL OR m.membership_type_id <> %d)", TypeLapsed))
+	case StatusExpired:
+		today := f.Today
+		if today.IsZero() {
+			today = time.Now()
+		}
+		where = append(where, "m.deleted_at IS NULL", "m.membership_expiry < ?")
+		args = append(args, today.Format("2006-01-02"))
 	case StatusArchived:
 		where = append(where, "m.deleted_at IS NOT NULL")
 	case StatusAll:
