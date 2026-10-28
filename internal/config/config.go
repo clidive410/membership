@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/mail"
 	"net/netip"
 	"net/url"
 	"os"
@@ -24,17 +25,33 @@ type Config struct {
 	BaseURL       *url.URL      // BASE_URL, public URL incl. optional path prefix
 	CookieSecure  bool          // COOKIE_SECURE, defaults to true when BASE_URL is https
 	CookieDomain  string        // COOKIE_DOMAIN, e.g. "clidive.org" to share the session with the WordPress site
-	SessionTTL    time.Duration // SESSION_TTL, default 12h
-	LogLevel      slog.Level    // LOG_LEVEL: debug, info, warn, error
-	LogFormat     string        // LOG_FORMAT: json (default) or text
+	SessionTTL    time.Duration // SESSION_TTL, default 12h (password sign-in)
+	// MEMBER_SESSION_TTL: lifetime of sessions started with an emailed
+	// sign-in link, default 720h (30 days).
+	MemberSessionTTL time.Duration
+	// LOGIN_RETURN_URL: optional default destination after a member signs
+	// in (e.g. https://www.clidive.org/). Absolute next= URLs are accepted
+	// only on this URL's scheme and host.
+	LoginReturnURL *url.URL
+	LogLevel       slog.Level // LOG_LEVEL: debug, info, warn, error
+	LogFormat      string     // LOG_FORMAT: json (default) or text
 	// MIGRATE_ON_START: apply pending migrations before serving (default
 	// false; `serve --migrate` forces it). AUTO_MIGRATE is a deprecated alias.
 	MigrateOnStart bool
-	MailFrom       string // MAIL_FROM, sender for future emails (not used yet), default membership@clidive.org
+	MailFrom       string // MAIL_FROM, sender address, "addr" or "Name <addr>", default membership@clidive.org
+	SMTPHost       string // SMTP_HOST; empty: emails are not sent (logged in development)
+	SMTPPort       int    // SMTP_PORT, default 587 (STARTTLS); 465 for implicit TLS
+	SMTPUsername   string // SMTP_USERNAME
+	SMTPPassword   string // SMTP_PASSWORD
 	// TRUSTED_PROXIES: comma-separated CIDRs of reverse proxies whose
 	// X-Forwarded-For is believed (e.g. the Swarm overlay network).
 	TrustedProxies []netip.Prefix
 }
+
+// Development reports whether the service runs in local development mode
+// (LOG_FORMAT=text). Only then may sign-in links be logged instead of
+// emailed when SMTP is not configured.
+func (c *Config) Development() bool { return c.LogFormat == "text" }
 
 // BasePath returns the path prefix of BaseURL without a trailing slash
 // ("" when the service is mounted at the root).
@@ -135,6 +152,32 @@ func Load(getenv Getenv) (*Config, error) {
 	c.SessionTTL, err = time.ParseDuration(get("SESSION_TTL", "12h"))
 	if err != nil || c.SessionTTL <= 0 {
 		errs = append(errs, fmt.Errorf("SESSION_TTL must be a positive duration"))
+	}
+	c.MemberSessionTTL, err = time.ParseDuration(get("MEMBER_SESSION_TTL", "720h"))
+	if err != nil || c.MemberSessionTTL <= 0 {
+		errs = append(errs, fmt.Errorf("MEMBER_SESSION_TTL must be a positive duration"))
+	}
+	if v := get("LOGIN_RETURN_URL", ""); v != "" {
+		u, err := url.Parse(v)
+		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil {
+			errs = append(errs, fmt.Errorf("LOGIN_RETURN_URL must be an absolute http(s) URL, got %q", v))
+		} else {
+			c.LoginReturnURL = u
+		}
+	}
+
+	c.SMTPHost = get("SMTP_HOST", "")
+	c.SMTPUsername = get("SMTP_USERNAME", "")
+	c.SMTPPassword = get("SMTP_PASSWORD", "")
+	c.SMTPPort, err = strconv.Atoi(get("SMTP_PORT", "587"))
+	if err != nil || c.SMTPPort <= 0 || c.SMTPPort > 65535 {
+		errs = append(errs, fmt.Errorf("SMTP_PORT must be a port number"))
+	}
+	if (c.SMTPUsername == "") != (c.SMTPPassword == "") {
+		errs = append(errs, errors.New("SMTP_USERNAME and SMTP_PASSWORD must be set together"))
+	}
+	if _, err := mail.ParseAddress(c.MailFrom); err != nil {
+		errs = append(errs, fmt.Errorf("MAIL_FROM must be an address or \"Name <address>\": %w", err))
 	}
 
 	if err := c.LogLevel.UnmarshalText([]byte(get("LOG_LEVEL", "info"))); err != nil {
