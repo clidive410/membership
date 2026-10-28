@@ -53,6 +53,7 @@ func parseFilter(r *http.Request) (members.Filter, string) {
 
 func (s *Server) handleMemberList(w http.ResponseWriter, r *http.Request) {
 	f, typeArg := parseFilter(r)
+	f.Today = s.opt.Now()
 	ms, err := s.opt.Members.ListMembers(r.Context(), f)
 	if err != nil {
 		s.serverError(w, r, err)
