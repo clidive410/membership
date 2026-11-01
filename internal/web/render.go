@@ -244,7 +244,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name
 		pg.Nav = "new"
 	}
 	if d, ok := data.(loginData); ok {
-		s.allowLoginRedirect(w, d.Next) // signing in may end at an OIDC client
+		s.allowLoginRedirect(r.Context(), w, d.Next) // signing in may end at an OIDC client
 	}
 	if name == "payments" {
 		if n, err := strconv.Atoi(r.URL.Query().Get("n")); err == nil && r.URL.Query().Get("flash") == "bulk" {

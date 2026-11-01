@@ -206,7 +206,7 @@ func (s *Server) handleOIDCContinue(w http.ResponseWriter, r *http.Request) {
 					d.Scopes = append(d.Scopes, desc)
 				}
 			}
-			s.allowFormRedirect(w, a.ClientID, a.RedirectURI)
+			s.allowFormRedirect(r.Context(), w, a.ClientID, a.RedirectURI)
 			s.render(w, r, http.StatusOK, "consent", "Allow "+client.Name+"?", d)
 			return
 		case r.PostForm.Get("decision") == "allow":
@@ -230,8 +230,8 @@ func (s *Server) handleOIDCContinue(w http.ResponseWriter, r *http.Request) {
 // allowFormRedirect widens form-action so that a form on this page may end
 // in a redirect to the client's (registered) redirect URI: browsers apply
 // form-action to the redirects that follow a form submission.
-func (s *Server) allowFormRedirect(w http.ResponseWriter, clientID, redirectURI string) {
-	origin, ok := s.opt.OIDC.RedirectOrigin(context.Background(), clientID, redirectURI)
+func (s *Server) allowFormRedirect(ctx context.Context, w http.ResponseWriter, clientID, redirectURI string) {
+	origin, ok := s.opt.OIDC.RedirectOrigin(ctx, clientID, redirectURI)
 	if !ok {
 		return
 	}
@@ -240,7 +240,7 @@ func (s *Server) allowFormRedirect(w http.ResponseWriter, clientID, redirectURI 
 
 // allowLoginRedirect applies allowFormRedirect for a login page whose
 // next is an authorize URL.
-func (s *Server) allowLoginRedirect(w http.ResponseWriter, next string) {
+func (s *Server) allowLoginRedirect(ctx context.Context, w http.ResponseWriter, next string) {
 	if !s.oidcEnabled() || next == "" {
 		return
 	}
@@ -249,7 +249,7 @@ func (s *Server) allowLoginRedirect(w http.ResponseWriter, next string) {
 		return
 	}
 	q := u.Query()
-	s.allowFormRedirect(w, q.Get("client_id"), q.Get("redirect_uri"))
+	s.allowFormRedirect(ctx, w, q.Get("client_id"), q.Get("redirect_uri"))
 }
 
 // handleOIDCEndSession is /oauth/end_session (RP-initiated logout). With
