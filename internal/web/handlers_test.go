@@ -152,6 +152,64 @@ func TestSessionCookieDomain(t *testing.T) {
 	}
 }
 
+// A browser holding a stale cookie copy from an earlier cookie scope (sent
+// first) must still be recognised by the fresh copy sent after it.
+func TestDuplicateCookiesTolerated(t *testing.T) {
+	e := newEnv(t, "")
+	tok := e.fa.session("admin@example.org")
+	// Session: stale value first, valid one second.
+	r := httptest.NewRequest("GET", "/admin/members", nil)
+	r.AddCookie(&http.Cookie{Name: "clidive_session", Value: "stale-session-value"})
+	r.AddCookie(&http.Cookie{Name: "clidive_session", Value: tok})
+	w := httptest.NewRecorder()
+	e.h.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Errorf("duplicate session cookies: got %d, want 200", w.Code)
+	}
+	// CSRF: stale cookie first, the matching one second.
+	form := url.Values{"csrf_token": {auth.CSRF{Secret: secret}.Token(browser)}}
+	r = httptest.NewRequest("POST", "/admin/members/1/archive", strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.Header.Set("Sec-Fetch-Site", "same-origin")
+	r.AddCookie(&http.Cookie{Name: "clidive_session", Value: tok})
+	r.AddCookie(&http.Cookie{Name: "clidive_csrf", Value: "stale-browser-id"})
+	r.AddCookie(&http.Cookie{Name: "clidive_csrf", Value: browser})
+	w = httptest.NewRecorder()
+	e.h.ServeHTTP(w, r)
+	if w.Code == http.StatusForbidden {
+		t.Errorf("duplicate csrf cookies: got 403")
+	}
+}
+
+// A CSRF failure from a browser navigation clears every cookie variant and
+// reloads the form instead of leaving the user on a 403.
+func TestCSRFFailureClearsCookiesAndReloads(t *testing.T) {
+	e := newEnv(t, "")
+	r := httptest.NewRequest("POST", "/login", strings.NewReader("csrf_token=forged&email=x%40example.org&password=y"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.Header.Set("Sec-Fetch-Site", "same-origin")
+	r.Header.Set("Sec-Fetch-Mode", "navigate")
+	r.Host = "members.clidive.org"
+	r.AddCookie(&http.Cookie{Name: "clidive_csrf", Value: "stale"})
+	w := httptest.NewRecorder()
+	e.h.ServeHTTP(w, r)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("got %d, want 303", w.Code)
+	}
+	var cleared, parent bool
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "clidive_csrf" && c.MaxAge < 0 {
+			cleared = true
+			if c.Domain == "clidive.org" {
+				parent = true
+			}
+		}
+	}
+	if !cleared || !parent {
+		t.Errorf("expected clidive_csrf cleared on host and parent domain; cookies=%v", w.Result().Cookies())
+	}
+}
+
 func TestCSRFRequired(t *testing.T) {
 	e := newEnv(t, "")
 	tok := e.fa.session("admin@example.org")
