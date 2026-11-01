@@ -100,3 +100,19 @@ func (b *docBrowser) paginateRows(path string, q url.Values, rows []browseRow) {
 	lo, hi, pg := paginate(path, q, requested, len(rows), pageSize)
 	b.Rows, b.Pager, b.Count = rows[lo:hi], pg, len(rows)
 }
+
+// subtreeCounts counts, per folder, the documents in it or any subfolder
+// for which include is true.
+func subtreeCounts(lib *documents.Library, include func(*documents.Document) bool) map[int64]int {
+	n := map[int64]int{}
+	for i := range lib.Documents {
+		d := &lib.Documents[i]
+		if !d.CategoryID.Valid || !include(d) {
+			continue
+		}
+		for _, c := range lib.Path(d.CategoryID.Int64) {
+			n[c.ID]++
+		}
+	}
+	return n
+}

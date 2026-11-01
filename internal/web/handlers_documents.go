@@ -193,7 +193,7 @@ func (s *Server) handleDocuments(w http.ResponseWriter, r *http.Request) {
 	} else {
 		d.B.Crumbs = crumbs(lib, current, folderHref, s.url("/documents"))
 	}
-	direct := map[int64]int{}
+	counts := subtreeCounts(lib, func(doc *documents.Document) bool { return lib.CanView(level, doc) })
 	var docRows []browseRow
 	for i := range lib.Documents {
 		doc := &lib.Documents[i]
@@ -201,9 +201,6 @@ func (s *Server) handleDocuments(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		d.Empty = false
-		if doc.CategoryID.Valid {
-			direct[doc.CategoryID.Int64]++
-		}
 		if query != "" && !documents.Matches(doc, query) || query == "" && !inFolder(doc.CategoryID, current) {
 			continue
 		}
@@ -215,7 +212,7 @@ func (s *Server) handleDocuments(w http.ResponseWriter, r *http.Request) {
 			c := &lib.Categories[i]
 			if vis[c.ID] && inFolder(c.ParentID, current) {
 				d.Empty = false
-				rows = append(rows, folderRow(c, c.Name, folderHref(c), lib.CategoryAccess(c.ID), direct[c.ID]))
+				rows = append(rows, folderRow(c, c.Name, folderHref(c), lib.CategoryAccess(c.ID), counts[c.ID]))
 			}
 		}
 	}
@@ -371,6 +368,7 @@ func (s *Server) docAdminPage(w http.ResponseWriter, r *http.Request, status int
 	default:
 		b.Crumbs = crumbs(lib, d.CatID, folderHref, s.url("/admin/documents"))
 	}
+	counts := subtreeCounts(lib, func(doc *documents.Document) bool { return doc.ArchivedAt.Valid == b.Archived })
 	var rows []browseRow
 	for _, o := range d.Categories {
 		c := o.C
@@ -381,7 +379,7 @@ func (s *Server) docAdminPage(w http.ResponseWriter, r *http.Request, status int
 		if flat {
 			name = categoryLabel(lib, sql.NullInt64{Int64: c.ID, Valid: true})
 		}
-		rows = append(rows, folderRow(c, name, folderHref(c), o.Access, o.Docs))
+		rows = append(rows, folderRow(c, name, folderHref(c), o.Access, counts[c.ID]))
 	}
 	for i := range lib.Documents {
 		doc := &lib.Documents[i]
