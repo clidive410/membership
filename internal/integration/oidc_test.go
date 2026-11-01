@@ -679,6 +679,25 @@ func TestOIDCClaimsByStatus(t *testing.T) {
 	}
 }
 
+// TestOIDCStaleSessionCookieCopy: a browser that still carries a session
+// cookie from an earlier cookie scope (sent ahead of the live one) completes
+// the code flow, and the stale copy is expired on the way.
+func TestOIDCStaleSessionCookieCopy(t *testing.T) {
+	e := newOIDCEnv(t, true)
+	dan := e.passwordUser(t, "dan@example.org", "", 0, auth.RoleMember)
+	b := e.browser(t)
+	b.signIn(t, dan, auth.LoginMethodMagicLink)
+	// A longer path sorts first in the Cookie header, like a stale
+	// parent-domain cookie does in real browsers.
+	u, _ := url.Parse(e.base)
+	b.c.Jar.SetCookies(u, []*http.Cookie{{Name: "clidive_session", Value: "stale-from-old-scope", Path: "/oauth"}})
+	a := e.newAuthz(fullScope)
+	_, tr := e.exchange(t, b.code(t, a), a.verifier)
+	if idc, _ := e.idClaims(t, tr.IDToken); idc["email"] != "dan@example.org" {
+		t.Errorf("id token claims: %v", idc)
+	}
+}
+
 // TestOIDCConsent: a client that is not first party asks once per user.
 func TestOIDCConsent(t *testing.T) {
 	e := newOIDCEnv(t, false)

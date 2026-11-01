@@ -59,8 +59,11 @@ func (s *Server) loadSession(next http.Handler) http.Handler {
 			return
 		}
 		// A browser can hold more than one cookie of this name when the cookie
-		// scope changed (e.g. a stale copy set for the parent domain); try each.
-		for _, c := range cookiesNamed(r, sessionCookie) {
+		// scope changed (e.g. a stale copy set for the parent domain). Try each;
+		// the one that resolves becomes the only copy the handlers see
+		// (r.Cookie returns the first), and the others are expired.
+		copies := cookiesNamed(r, sessionCookie)
+		for _, c := range copies {
 			p, err := s.opt.Auth.LookupSession(r.Context(), c.Value)
 			if err != nil {
 				s.opt.Log.Error("looking up session", "err", err)
@@ -68,6 +71,10 @@ func (s *Server) loadSession(next http.Handler) http.Handler {
 			}
 			if p != nil {
 				r = r.WithContext(withPrincipal(r.Context(), p))
+				if len(copies) > 1 {
+					keepOnlyCookie(r, c)
+					s.clearForeignCookieVariants(w, r, sessionCookie)
+				}
 				break
 			}
 		}
@@ -115,6 +122,18 @@ func (s *Server) csrfToken(w http.ResponseWriter, r *http.Request) string {
 	return s.csrf.Token(v)
 }
 
+// keepOnlyCookie rewrites the request's Cookie header so that keep is the
+// only cookie of its name.
+func keepOnlyCookie(r *http.Request, keep *http.Cookie) {
+	var parts []string
+	for _, c := range r.Cookies() {
+		if c.Name != keep.Name || c.Value == keep.Value {
+			parts = append(parts, c.Name+"="+c.Value)
+		}
+	}
+	r.Header.Set("Cookie", strings.Join(parts, "; "))
+}
+
 // cookiesNamed returns every cookie with the given name, in header order.
 func cookiesNamed(r *http.Request, name string) []*http.Cookie {
 	var out []*http.Cookie
@@ -130,14 +149,37 @@ func cookiesNamed(r *http.Request, name string) []*http.Cookie {
 // domain and on the request host's parent domain, so stale copies left by an
 // earlier cookie scope cannot shadow the current one.
 func (s *Server) clearCookieVariants(w http.ResponseWriter, r *http.Request, name string) {
+	s.expireCookieOn(w, name, s.cookieDomains(r))
+}
+
+// clearForeignCookieVariants expires the copies of a cookie that the current
+// configuration would not have set (another domain scope), keeping the live
+// one. It tidies up after a change of COOKIE_DOMAIN.
+func (s *Server) clearForeignCookieVariants(w http.ResponseWriter, r *http.Request, name string) {
+	var foreign []string
+	for _, d := range s.cookieDomains(r) {
+		if d != s.opt.CookieDomain {
+			foreign = append(foreign, d)
+		}
+	}
+	s.expireCookieOn(w, name, foreign)
+}
+
+// cookieDomains lists the scopes a cookie of ours may have been set on: the
+// host, the configured cookie domain and the host's parent domain.
+func (s *Server) cookieDomains(r *http.Request) []string {
 	domains := []string{"", s.opt.CookieDomain}
 	host := r.Host
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
-	if parts := strings.Split(host, "."); len(parts) >= 3 {
+	if parts := strings.Split(host, "."); len(parts) >= 3 && net.ParseIP(host) == nil {
 		domains = append(domains, strings.Join(parts[1:], "."))
 	}
+	return domains
+}
+
+func (s *Server) expireCookieOn(w http.ResponseWriter, name string, domains []string) {
 	seen := map[string]bool{}
 	for _, d := range domains {
 		if seen[d] {
@@ -145,7 +187,11 @@ func (s *Server) clearCookieVariants(w http.ResponseWriter, r *http.Request, nam
 		}
 		seen[d] = true
 		for _, path := range []string{"/", s.cookiePath()} {
-			http.SetCookie(w, &http.Cookie{Name: name, Value: "", Path: path, Domain: d, MaxAge: -1, HttpOnly: true, Secure: s.opt.CookieSecure, SameSite: http.SameSiteLaxMode})
+			c := &http.Cookie{Name: name, Value: "", Path: path, Domain: d, MaxAge: -1, HttpOnly: true, Secure: s.opt.CookieSecure, SameSite: http.SameSiteLaxMode}
+			if c.Valid() != nil {
+				continue // an invalid Domain would be dropped, expiring the host cookie instead
+			}
+			http.SetCookie(w, c)
 		}
 	}
 }
