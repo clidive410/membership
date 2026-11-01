@@ -30,7 +30,8 @@ CREATE TABLE oidc_clients (
 CREATE TABLE oidc_keys (
   kid             VARCHAR(64)  NOT NULL,
   alg             VARCHAR(10)  NOT NULL DEFAULT 'RS256',
-  private_key_enc BLOB         NOT NULL,
+  private_key_enc BLOB         NOT NULL COMMENT 'nonce and AES-256-GCM sealed PKCS#8 private key',
+  public_key      BLOB         NOT NULL COMMENT 'PKIX public key (DER), published in JWKS',
   active_slot     TINYINT      NULL,
   created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   retired_at      DATETIME     NULL,

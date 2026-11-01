@@ -256,6 +256,18 @@ func (s *Store) principal(ctx context.Context, userID int64, method string) (*Pr
 	return p, nil
 }
 
+// PrincipalFor returns the principal a session of userID started with
+// method would carry (roles filtered as for LookupSession), or (nil, nil)
+// when the user does not exist or is disabled. The OpenID Connect provider
+// uses it to derive the roles claim of tokens issued from a session.
+func (s *Store) PrincipalFor(ctx context.Context, userID int64, method string) (*Principal, error) {
+	p, err := s.principal(ctx, userID, method)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return p, err
+}
+
 // CreateSession starts a session and returns the cookie token.
 func (s *Store) CreateSession(ctx context.Context, userID int64, method string, ttl time.Duration) (string, error) {
 	token := NewToken()
