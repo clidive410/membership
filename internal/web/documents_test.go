@@ -421,8 +421,11 @@ func TestDocumentEditAndArchive(t *testing.T) {
 func TestCategoryManage(t *testing.T) {
 	e := newDocEnv(t)
 	mgr := e.fa.session("manager@example.org")
-	if w := e.do(t, "POST", "/admin/documents/categories", mgr, url.Values{"name": {"AGM 2026"}, "parent": {"3"}, "access": {"committee"}, "sort_order": {"5"}}); w.Code != 303 {
-		t.Fatalf("create: %d", w.Code)
+	if w := e.do(t, "POST", "/admin/documents/categories", mgr, url.Values{"name": {"AGM 2026"}, "parent": {"3"}, "access": {"committee"}, "sort_order": {"5"}}); w.Code != 303 || w.Header().Get("Location") != "/admin/documents?cat=3&flash=cat-created" {
+		t.Fatalf("create: %d %s", w.Code, w.Header().Get("Location"))
+	}
+	if w := e.do(t, "GET", "/admin/documents?cat=3", mgr, nil); !strings.Contains(w.Body.String(), `<input type="hidden" name="parent" value="3">`) || strings.Contains(w.Body.String(), `id="nc-parent"`) {
+		t.Error("a new folder on a filtered page goes inside that folder")
 	}
 	c := e.fd.cats[len(e.fd.cats)-1]
 	if c.Name != "AGM 2026" || c.ParentID.Int64 != 3 || c.SortOrder != 5 {

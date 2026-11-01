@@ -59,15 +59,17 @@
   </div>
   <div class="col-lg-6">
     <section class="card h-100" aria-labelledby="nc-h">
-      <div class="card-header"><h2 class="card-title" id="nc-h">New folder</h2></div>
-      <form class="card-body" method="post" action="{{url "/admin/documents/categories"}}">
+      <div class="card-header"><h2 class="card-title" id="nc-h">{{if $d.CatID}}New subfolder{{else}}New folder{{end}}</h2></div>
+      <form class="card-body" method="post" action="{{url "/admin/documents/categories"}}{{with $d.CatID}}?cat={{.}}{{end}}">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
         <div class="mb-3"><label class="form-label required" for="nc-name">Name</label>
           <input class="form-control" id="nc-name" name="name" required maxlength="255" value="{{$d.Form.Get "name"}}"></div>
         <div class="mb-3"><label class="form-label" for="nc-desc">Description</label>
           <input class="form-control" id="nc-desc" name="description" maxlength="2000"></div>
         <div class="row">
-          <div class="col-md-5 mb-3"><label class="form-label" for="nc-parent">Parent</label>{{template "catsel" (dict "Name" "parent" "ID" "nc-parent" "Cats" $d.Categories "Value" ($d.Form.Get "parent") "Top" "(top level)")}}</div>
+          {{if $d.CatID}}<input type="hidden" name="parent" value="{{$d.CatID}}">
+          <div class="col-md-5 mb-3"><span class="form-label">Inside</span><div class="form-control-plaintext">{{icon "folder"}} {{$d.CatName}}</div></div>
+          {{else}}<div class="col-md-5 mb-3"><label class="form-label" for="nc-parent">Parent</label>{{template "catsel" (dict "Name" "parent" "ID" "nc-parent" "Cats" $d.Categories "Value" ($d.Form.Get "parent") "Top" "(top level)")}}</div>{{end}}
           <div class="col-md-4 mb-3"><label class="form-label" for="nc-access">Who can see it</label>{{template "accesssel" (dict "Name" "access" "ID" "nc-access" "Levels" (slice $d.Levels 0 3) "Value" "committee")}}</div>
           <div class="col-md-3 mb-3"><label class="form-label" for="nc-order">Order</label>
             <input class="form-control" id="nc-order" name="sort_order" inputmode="numeric" value="0"></div>

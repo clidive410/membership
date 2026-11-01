@@ -349,7 +349,8 @@ type docAdminData struct {
 	Query      string
 	Cat        string // filter: category id, "none" or ""
 	CatID      int64  // the filtered category, when Cat names one
-	Archived   bool   // show archived documents only
+	CatName    string
+	Archived   bool // show archived documents only
 	MaxMB      int64
 	Extensions string
 	Error      string
@@ -371,7 +372,7 @@ func (s *Server) docAdminPage(w http.ResponseWriter, r *http.Request, status int
 		d.Form = r.PostForm
 	}
 	if id, err := strconv.ParseInt(d.Cat, 10, 64); err == nil && lib.Category(id) != nil {
-		d.CatID = id
+		d.CatID, d.CatName = id, lib.Category(id).Name
 	}
 	var rows []docRow
 	for i := range lib.Documents {
@@ -472,7 +473,11 @@ func (s *Server) handleCategoryCreate(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	http.Redirect(w, r, s.url("/admin/documents?flash=cat-created"), http.StatusSeeOther)
+	back := "/admin/documents?flash=cat-created"
+	if c.ParentID.Valid {
+		back = fmt.Sprintf("/admin/documents?cat=%d&flash=cat-created", c.ParentID.Int64)
+	}
+	http.Redirect(w, r, s.url(back), http.StatusSeeOther)
 }
 
 type categoryEditData struct {
