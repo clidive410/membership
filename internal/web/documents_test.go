@@ -428,9 +428,22 @@ func TestCategoryManage(t *testing.T) {
 		t.Error("a new folder on a filtered page goes inside that folder")
 	}
 	c := e.fd.cats[len(e.fd.cats)-1]
-	w := e.do(t, "GET", "/admin/documents?cat=3", mgr, nil)
-	if body := w.Body.String(); !strings.Contains(body, "Subfolders") || !strings.Contains(body, `href="/admin/documents/categories/`+itoa(c.ID)+`">AGM 2026<`) || strings.Contains(body, `href="/admin/documents/categories/1">`) {
-		t.Error("a folder's manage view lists only its subfolders")
+	// The manage page browses folders: subfolders, then documents.
+	body := e.do(t, "GET", "/admin/documents?cat=3", mgr, nil).Body.String()
+	if !strings.Contains(body, `href="/admin/documents?cat=`+itoa(c.ID)+`">`) || !strings.Contains(body, "Minutes secret") ||
+		strings.Contains(body, "Welcome pack") || strings.Contains(body, `href="/admin/documents?cat=1">`) {
+		t.Error("a folder lists its subfolders and documents only")
+	}
+	if strings.Index(body, "AGM 2026") > strings.Index(body, "Minutes secret") {
+		t.Error("subfolders come before documents")
+	}
+	body = e.do(t, "GET", "/admin/documents", mgr, nil).Body.String()
+	if !strings.Contains(body, `href="/admin/documents?cat=1">`) || strings.Contains(body, "Minutes secret") || strings.Contains(body, `href="/admin/documents?cat=`+itoa(c.ID)+`">`) {
+		t.Error("the top level lists top-level folders only")
+	}
+	body = e.do(t, "GET", "/admin/documents?q=minutes", mgr, nil).Body.String()
+	if !strings.Contains(body, "Minutes secret") || !strings.Contains(body, "Committee papers") {
+		t.Error("search lists matches from every folder, with their folder")
 	}
 	if c.Name != "AGM 2026" || c.ParentID.Int64 != 3 || c.SortOrder != 5 {
 		t.Errorf("created: %+v", c)

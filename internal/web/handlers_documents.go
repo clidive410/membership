@@ -341,17 +341,24 @@ func flatten(lib *documents.Library) []catOption {
 	return out
 }
 
+// adminEntry is one row of the manage list: a folder or a document.
+type adminEntry struct {
+	Folder *catOption
+	Doc    *docRow
+}
+
 type docAdminData struct {
 	Categories []catOption // every folder, for the selects
-	Folders    []catOption // the folders table: all, or the open folder's subfolders
-	Docs       []docRow
+	Entries    []adminEntry
+	Path       []*documents.Category // breadcrumb of the open folder
 	Pager      pager
 	Count      int
 	Query      string
-	Cat        string // filter: category id, "none" or ""
-	CatID      int64  // the filtered category, when Cat names one
+	Cat        string // the open folder id, or ""
+	CatID      int64
 	CatName    string
-	Archived   bool // show archived documents only
+	Archived   bool // archived items, from every folder
+	Flat       bool // search or archived view: entries from every folder
 	MaxMB      int64
 	Extensions string
 	Error      string
@@ -359,6 +366,9 @@ type docAdminData struct {
 	Form       url.Values // values of a rejected form
 }
 
+// docAdminPage lists one folder like a file browser: its subfolders, then
+// its documents. A search or the archived view lists matching documents
+// (and archived folders) from every folder instead.
 func (s *Server) docAdminPage(w http.ResponseWriter, r *http.Request, status int, errMsg string) {
 	lib, err := s.opt.Documents.Library(r.Context())
 	if err != nil {
@@ -366,50 +376,52 @@ func (s *Server) docAdminPage(w http.ResponseWriter, r *http.Request, status int
 		return
 	}
 	q := r.URL.Query()
-	d := docAdminData{Categories: flatten(lib), Query: strings.TrimSpace(q.Get("q")), Cat: q.Get("cat"),
+	d := docAdminData{Categories: flatten(lib), Query: strings.TrimSpace(q.Get("q")),
 		Archived: q.Get("show") == "archived", MaxMB: s.maxUpload() >> 20, Extensions: documents.AllowedExtensions,
 		Error: errMsg, Levels: append(slices.Clone(documents.Levels), documents.Inherit)}
 	if errMsg != "" {
 		d.Form = r.PostForm
 	}
-	if id, err := strconv.ParseInt(d.Cat, 10, 64); err == nil && lib.Category(id) != nil {
-		d.CatID, d.CatName = id, lib.Category(id).Name
+	if id, err := strconv.ParseInt(q.Get("cat"), 10, 64); err == nil && lib.Category(id) != nil {
+		d.CatID, d.CatName, d.Cat = id, lib.Category(id).Name, strconv.FormatInt(id, 10)
+		d.Path = lib.Path(id)
 	}
-	d.Folders = d.Categories
-	if d.CatID != 0 {
-		d.Folders = nil
-		for _, o := range d.Categories {
-			if o.C.ParentID.Valid && o.C.ParentID.Int64 == d.CatID {
-				o.Label = o.C.Name
-				d.Folders = append(d.Folders, o)
+	d.Flat = d.Query != "" || d.Archived
+	var entries []adminEntry
+	for i := range d.Categories {
+		o := &d.Categories[i]
+		var show bool
+		if d.Flat {
+			show = d.Archived && d.Query == "" && o.C.ArchivedAt.Valid
+		} else {
+			show = o.C.ParentID.Int64 == d.CatID && o.C.ParentID.Valid == (d.CatID != 0)
+		}
+		if show {
+			f := *o
+			f.Label = f.C.Name
+			if d.Flat {
+				f.Label = categoryLabel(lib, sql.NullInt64{Int64: f.ID, Valid: true})
 			}
+			entries = append(entries, adminEntry{Folder: &f})
 		}
 	}
-	var rows []docRow
 	for i := range lib.Documents {
 		doc := &lib.Documents[i]
-		if lib.Hidden(doc) != d.Archived {
+		if doc.ArchivedAt.Valid != d.Archived {
 			continue
-		}
-		switch d.Cat {
-		case "":
-		case "none":
-			if doc.CategoryID.Valid {
-				continue
-			}
-		default:
-			if strconv.FormatInt(doc.CategoryID.Int64, 10) != d.Cat {
-				continue
-			}
 		}
 		if d.Query != "" && !documents.Matches(doc, d.Query) {
 			continue
 		}
-		rows = append(rows, docRow{D: doc, Access: lib.EffectiveAccess(doc), Category: categoryLabel(lib, doc.CategoryID), Hidden: lib.Hidden(doc)})
+		if !d.Flat && (doc.CategoryID.Int64 != d.CatID || doc.CategoryID.Valid != (d.CatID != 0)) {
+			continue
+		}
+		entries = append(entries, adminEntry{Doc: &docRow{D: doc, Access: lib.EffectiveAccess(doc),
+			Category: categoryLabel(lib, doc.CategoryID), Hidden: lib.Hidden(doc)}})
 	}
 	requested, _ := strconv.Atoi(q.Get("page"))
-	lo, hi, pg := paginate(s.url("/admin/documents"), q, requested, len(rows), pageSize)
-	d.Docs, d.Pager, d.Count = rows[lo:hi], pg, len(rows)
+	lo, hi, pg := paginate(s.url("/admin/documents"), q, requested, len(entries), pageSize)
+	d.Entries, d.Pager, d.Count = entries[lo:hi], pg, len(entries)
 	s.render(w, r, status, "docadmin", "Manage documents", d)
 }
 
