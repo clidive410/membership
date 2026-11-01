@@ -238,7 +238,7 @@ func (s *Server) handleLoginVerify(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookie); err == nil && c.Value != "" {
-		if err := s.opt.Auth.DeleteSession(r.Context(), c.Value); err != nil {
+		if err := s.opt.Auth.Logout(r.Context(), c.Value); err != nil {
 			s.serverError(w, r, err)
 			return
 		}

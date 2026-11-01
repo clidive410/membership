@@ -3,7 +3,7 @@
 <section class="card mb-3" aria-labelledby="invite-h">
   <div class="card-header"><h2 class="card-title" id="invite-h">{{icon "user-plus"}} Invite by email</h2></div>
   <div class="card-body">
-    <p class="text-secondary">For committee members without a member record (members are invited from their member page). Creates the login if needed, grants the role and emails a link to set a password, valid for 7 days.</p>
+    <p class="text-secondary">For committee members without a member record (members are invited from their member page). Creates the login if needed, grants the role and emails a link to set a password, valid for 7 days. <em>Website editor</em> also makes the login an editor of the club website when it signs in there through the portal (with a password).</p>
     <form method="post" action="{{url "/admin/users"}}" class="row g-2 align-items-end">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div class="col-md-6"><label class="form-label" for="invite-email">Email address</label>
@@ -13,7 +13,9 @@
           <option value="membership_manager">{{accessName "membership_manager"}}</option>
           <option value="admin">{{accessName "admin"}}</option>
           <option value="member">{{accessName "member"}}</option>
-        </select></div>
+        </select>
+        <div class="form-check mt-1"><input class="form-check-input" type="checkbox" id="invite-editor" name="editor" value="1">
+          <label class="form-check-label" for="invite-editor">Website editor</label></div></div>
       <div class="col-md-3"><button type="submit" class="btn btn-primary w-100">{{icon "mail"}} Send invitation</button></div>
     </form>
   </div>

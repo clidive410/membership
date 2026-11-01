@@ -269,6 +269,7 @@ type fakeAuth struct {
 	lastTTL  time.Duration
 	// access management
 	accessCalls int
+	logouts     int
 	audit       []string
 }
 
@@ -366,6 +367,13 @@ func (f *fakeAuth) DeleteSession(_ context.Context, token string) error {
 	defer f.mu.Unlock()
 	delete(f.sessions, token)
 	return nil
+}
+
+func (f *fakeAuth) Logout(ctx context.Context, token string) error {
+	f.mu.Lock()
+	f.logouts++
+	f.mu.Unlock()
+	return f.DeleteSession(ctx, token)
 }
 
 // currentMember returns the non-archived member with id, or nil.
@@ -603,6 +611,9 @@ func (f *fakeAuth) SetAccess(_ context.Context, a members.Actor, req auth.Access
 		var roles []auth.Role
 		if u.p.HasRole(auth.RoleMember) || u.p.MemberID != 0 {
 			roles = append(roles, auth.RoleMember)
+		}
+		if (req.Editor == nil && u.p.HasRole(auth.RoleEditor)) || (req.Editor != nil && *req.Editor) {
+			roles = append(roles, auth.RoleEditor)
 		}
 		if req.Access != auth.AccessMember {
 			roles = append(roles, auth.Role(req.Access))

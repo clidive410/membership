@@ -321,7 +321,7 @@ func userCmd(ctx context.Context, args []string, stdin io.Reader, out io.Writer)
 	}
 	fs := flag.NewFlagSet("user "+sub, flag.ContinueOnError)
 	email := fs.String("email", "", "user email (login identity)")
-	role := fs.String("role", "", "role: admin, membership_manager or member")
+	role := fs.String("role", "", "role: admin, membership_manager, editor (website editor) or member")
 	memberID := fs.Int64("member-id", 0, "member id to link (0 unlinks)")
 	if err := fs.Parse(args); err != nil {
 		return err

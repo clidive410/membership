@@ -224,3 +224,32 @@ func TestInviteByEmail(t *testing.T) {
 func membersNew(id int64, email string) members.Member {
 	return members.Member{ID: id, FirstName: "Dee", LastName: "Diver", Email1: email, Email1Use: true, TypeID: typ(1), MembershipExpiry: day(2027, 3, 31)}
 }
+
+func TestAdminGrantsWebsiteEditor(t *testing.T) {
+	e := newEnv(t, "")
+	admin := e.fa.session("admin@example.org")
+	path := "/admin/users/" + e.uid("bob@example.org") + "/access"
+	if w := e.do(t, "POST", path, admin, url.Values{"access": {"member"}, "editor": {"1"}, "action": {"save"}}); w.Code != http.StatusSeeOther {
+		t.Fatalf("grant editor: %d", w.Code)
+	}
+	p := &auth.Principal{Roles: e.roles("bob@example.org")}
+	if !p.HasRole(auth.RoleEditor) || !p.HasRole(auth.RoleMember) || p.IsCommittee() {
+		t.Fatalf("roles after granting editor: %v", p.Roles)
+	}
+	if p.Can(auth.PermViewMembers) || p.Can(auth.PermManageUsers) {
+		t.Error("the editor role must not grant admin permissions")
+	}
+	if w := e.do(t, "GET", "/admin/users", admin, nil); !strings.Contains(w.Body.String(), `name="editor" value="1" checked`) {
+		t.Error("the users page should show the editor checkbox ticked")
+	}
+	calls := e.fa.accessCalls
+	// Saving without the box revokes it; an unchanged form changes nothing.
+	e.do(t, "POST", path, admin, url.Values{"access": {"member"}, "action": {"save"}})
+	if (&auth.Principal{Roles: e.roles("bob@example.org")}).HasRole(auth.RoleEditor) || e.fa.accessCalls != calls+1 {
+		t.Errorf("revoke editor: roles %v, calls %d", e.roles("bob@example.org"), e.fa.accessCalls-calls)
+	}
+	e.do(t, "POST", path, admin, url.Values{"access": {"member"}, "action": {"save"}})
+	if e.fa.accessCalls != calls+1 {
+		t.Error("an unchanged form must not call SetAccess")
+	}
+}

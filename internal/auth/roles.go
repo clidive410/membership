@@ -22,10 +22,15 @@ const (
 	RoleAdmin             Role = "admin"              // committee
 	RoleMembershipManager Role = "membership_manager" // type/expiry/BSAC/payments
 	RoleMember            Role = "member"             // signed-in club member (own record, read-only)
+	// RoleEditor is a website editor. It grants nothing in the portal
+	// beyond what any signed-in user has (their own record); relying
+	// parties such as WordPress map it to their editor role. Like the
+	// committee roles it is only carried by password sessions.
+	RoleEditor Role = "editor"
 )
 
 // AllRoles lists the known roles.
-var AllRoles = []Role{RoleAdmin, RoleMembershipManager, RoleMember}
+var AllRoles = []Role{RoleAdmin, RoleMembershipManager, RoleEditor, RoleMember}
 
 // ValidRole reports whether r is a known role.
 func ValidRole(r Role) bool { return slices.Contains(AllRoles, r) }
@@ -54,6 +59,7 @@ var rolePermissions = map[Role][]Permission{
 		PermEditMembership, PermRecordPayments, PermExport, PermEmailLists, PermViewAudit, PermManageUsers, PermEditOwnPersonal},
 	RoleMembershipManager: {PermViewMembers, PermEditMembership, PermRecordPayments, PermViewAudit},
 	RoleMember:            {PermEditOwnPersonal},
+	RoleEditor:            {},
 }
 
 // Principal is the authenticated user of a request.

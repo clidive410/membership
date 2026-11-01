@@ -51,6 +51,9 @@ type AuthStore interface {
 	CreateSession(ctx context.Context, userID int64, method string, ttl time.Duration) (string, error)
 	LookupSession(ctx context.Context, token string) (*auth.Principal, error)
 	DeleteSession(ctx context.Context, token string) error
+	// Logout ends a session and revokes the OpenID Connect tokens issued
+	// while it was signed in.
+	Logout(ctx context.Context, token string) error
 	RequestLoginLink(ctx context.Context, email string, ttl time.Duration) (*auth.LoginLink, error)
 	LoginWithToken(ctx context.Context, token string) (*auth.Principal, error)
 	VerifySession(ctx context.Context, token string) (*auth.SessionStatus, error)

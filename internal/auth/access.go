@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,7 +25,7 @@ const (
 const auditResetActor = "password-reset"
 
 // ErrNoResetUser is returned by RequestPasswordReset when the email does not
-// belong to an enabled user with a committee role or a password.
+// belong to an enabled user with a committee or editor role or a password.
 var ErrNoResetUser = errors.New("no enabled committee or password user with this email")
 
 // ErrSelfLockout is returned when an admin tries to demote or disable their
@@ -83,7 +85,7 @@ func AccessOf(roles []Role, disabled bool) Access {
 		return AccessAdmin
 	case has(RoleMembershipManager):
 		return AccessMembershipManager
-	case has(RoleMember):
+	case has(RoleMember), has(RoleEditor):
 		return AccessMember
 	}
 	return AccessNone
@@ -92,9 +94,23 @@ func AccessOf(roles []Role, disabled bool) Access {
 // Access returns the user's level.
 func (u *User) Access() Access { return AccessOf(u.Roles, u.Disabled) }
 
+// Editor reports whether the login has the website editor role (and is
+// enabled). The role is orthogonal to the access level.
+func (u *User) Editor() bool {
+	if u.Disabled {
+		return false
+	}
+	for _, r := range u.Roles {
+		if r == RoleEditor {
+			return true
+		}
+	}
+	return false
+}
+
 // RequestPasswordReset issues a password-reset token (purpose
 // password_reset) for the enabled user with this email, if that user has a
-// committee role or a password. It writes an audit entry by user id. It
+// committee or editor role or a password. It writes an audit entry by user id. It
 // never grants roles.
 func (s *Store) RequestPasswordReset(ctx context.Context, email string, ttl time.Duration) (*LoginLink, error) {
 	email = members.NormalizeEmail(email)
@@ -109,8 +125,8 @@ func (s *Store) RequestPasswordReset(ctx context.Context, email string, ttl time
 		)
 		err := tx.QueryRowContext(ctx, `SELECT u.id, u.member_id FROM users u
 			WHERE u.email = ? AND NOT u.disabled AND (u.password_hash IS NOT NULL
-				OR EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = u.id AND r.role IN (?, ?)))`,
-			email, string(RoleAdmin), string(RoleMembershipManager)).Scan(&userID, &memberID)
+				OR EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = u.id AND r.role IN (?, ?, ?)))`,
+			email, string(RoleAdmin), string(RoleMembershipManager), string(RoleEditor)).Scan(&userID, &memberID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNoResetUser
 		} else if err != nil {
@@ -150,8 +166,9 @@ func (s *Store) PasswordResetEmail(ctx context.Context, token string) (string, e
 // ResetPassword spends a password_reset token and sets the user's password.
 // In one transaction it stores the argon2id hash, spends every other
 // outstanding reset token of the user, revokes all their sessions and
-// writes an audit entry. It returns the principal for a new password
-// session. It never changes roles and never re-enables a disabled user.
+// OpenID Connect tokens and writes an audit entry. It returns the principal
+// for a new password session. It never changes roles and never re-enables
+// a disabled user.
 //
 // A password shorter than MinPasswordLength is ErrWeakPassword and leaves
 // the token unspent.
@@ -190,6 +207,9 @@ func (s *Store) ResetPassword(ctx context.Context, token, password string) (*Pri
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, "DELETE FROM sessions WHERE user_id = ?", userID); err != nil {
+			return err
+		}
+		if err := revokeOIDCForUser(ctx, tx, userID); err != nil {
 			return err
 		}
 		var memberID sql.NullInt64
@@ -391,6 +411,8 @@ func (s *Store) InviteUser(ctx context.Context, actor members.Actor, req InviteR
 	return inv, err
 }
 
+func hasRole(roles []Role, r Role) bool { return slices.Contains(roles, r) }
+
 func rolesIn(ctx context.Context, tx *sql.Tx, userID int64) ([]Role, error) {
 	rows, err := tx.QueryContext(ctx, "SELECT role FROM user_roles WHERE user_id = ? ORDER BY role", userID)
 	if err != nil {
@@ -413,6 +435,10 @@ type AccessRequest struct {
 	Email    string
 	MemberID int64 // member to link when creating or linking (0: by email)
 	Access   Access
+	// Editor, when set, grants (true) or revokes (false) the website
+	// editor role alongside the level; nil leaves it as it is. Access none
+	// always revokes it.
+	Editor *bool
 }
 
 // AccessResult is the outcome of SetAccess.
@@ -433,6 +459,10 @@ type AccessResult struct {
 //     password), enables it, sets that role, removes the other committee
 //     role(s), and keeps (or, for a login linked to a member, adds) the
 //     member role so that the person can still sign in with an email link.
+//     The editor role is granted or revoked as req.Editor says.
+//
+// Access none and disabling also revoke the login's OpenID Connect tokens
+// and pending authorizations, so relying parties lose access at once.
 //
 // An actor cannot change their own login to anything but admin
 // (ErrSelfLockout). The change is audit-logged with the old and new level.
@@ -467,7 +497,10 @@ func (s *Store) SetAccess(ctx context.Context, actor members.Actor, req AccessRe
 			_, err := tx.ExecContext(ctx, q, args...)
 			return err
 		}
+		wasEditor := hasRole(roles, RoleEditor)
+		isEditor := wasEditor
 		if req.Access == AccessNone {
+			isEditor = false
 			for _, q := range []string{
 				"DELETE FROM user_roles WHERE user_id = ?",
 				"UPDATE users SET disabled = TRUE WHERE id = ?",
@@ -477,6 +510,9 @@ func (s *Store) SetAccess(ctx context.Context, actor members.Actor, req AccessRe
 				if err := exec(q, u.id); err != nil {
 					return err
 				}
+			}
+			if err := revokeOIDCForUser(ctx, tx, u.id); err != nil {
+				return err
 			}
 		} else {
 			memberID, note, err := linkMember(ctx, tx, u, req.MemberID, email)
@@ -497,6 +533,14 @@ func (s *Store) SetAccess(ctx context.Context, actor members.Actor, req AccessRe
 			if memberID != 0 {
 				grant = append(grant, RoleMember)
 			}
+			if req.Editor != nil {
+				isEditor = *req.Editor
+				if isEditor {
+					grant = append(grant, RoleEditor)
+				} else if err := exec("DELETE FROM user_roles WHERE user_id = ? AND role = ?", u.id, string(RoleEditor)); err != nil {
+					return err
+				}
+			}
 			for _, r := range grant {
 				if err := exec("INSERT IGNORE INTO user_roles (user_id, role) VALUES (?, ?)", u.id, string(r)); err != nil {
 					return err
@@ -513,6 +557,9 @@ func (s *Store) SetAccess(ctx context.Context, actor members.Actor, req AccessRe
 			return err
 		}
 		changes := map[string][2]string{"access": {string(res.From), string(res.To)}}
+		if wasEditor != isEditor {
+			changes["editor"] = [2]string{strconv.FormatBool(wasEditor), strconv.FormatBool(isEditor)}
+		}
 		return members.WriteAudit(ctx, tx, actor, ActionAccess, memberID.Int64, "user", u.id, changes)
 	})
 	if err != nil {

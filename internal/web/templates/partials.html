@@ -59,11 +59,14 @@
   <input type="hidden" name="csrf_token" value="{{.CSRF}}">
   {{- if $v.Self}}
   <input type="hidden" name="access" value="{{$v.Current}}">
+  {{- if $v.Editor}}<input type="hidden" name="editor" value="1">{{end}}
   <button type="submit" name="action" value="invite" class="btn btn-outline-secondary btn-sm">{{icon "mail"}} Send reset email</button>
   <small class="form-hint w-100">This is your own login: you cannot remove your own access. Ask another admin.</small>
   {{- else}}
   <div><label class="form-label small mb-1" for="{{.ID}}">Role</label>
     <select class="form-select form-select-sm" id="{{.ID}}" name="access">{{range $v.Levels}}<option value="{{.}}"{{if eq . $v.Current}} selected{{end}}>{{accessName .}}</option>{{end}}</select></div>
+  <div class="form-check mb-1"><input class="form-check-input" type="checkbox" id="{{.ID}}-editor" name="editor" value="1"{{if $v.Editor}} checked{{end}}>
+    <label class="form-check-label small" for="{{.ID}}-editor">Website editor</label></div>
   <button type="submit" name="action" value="save" class="btn btn-primary btn-sm">{{icon "device-floppy"}} Save</button>
   <button type="submit" name="action" value="invite" class="btn btn-outline-secondary btn-sm">{{icon "mail"}} Send invite / reset email</button>
   {{- end}}
