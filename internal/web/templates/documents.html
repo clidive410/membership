@@ -35,7 +35,7 @@
       {{range $d.Children}}<a class="list-group-item list-group-item-action" href="{{url "/documents"}}?cat={{.C.Slug}}">{{icon "folder"}} {{.C.Name}}{{with .C.Description}} <span class="text-secondary small">· {{.}}</span>{{end}}</a>{{end}}
     </div></div>{{end}}
     {{with $d.Current}}{{with .Description}}<p class="text-secondary">{{.}}</p>{{end}}{{end}}
-    <div class="card">
+    {{if or $d.Docs $d.Query (not $d.Children)}}<div class="card">
       {{if $d.Docs}}
       <div class="table-responsive"><table class="table table-vcenter card-table">
         <thead><tr><th scope="col">Document</th><th scope="col" class="text-end">Size</th><th scope="col" class="text-end">Date</th></tr></thead>
@@ -49,7 +49,7 @@
         </tr>{{end}}</tbody>
       </table></div>
       {{else}}<div class="card-body text-secondary">{{if $d.Query}}No documents match.{{else}}No documents here.{{end}}</div>{{end}}
-    </div>
+    </div>{{end}}
   </div>
 </div>
 {{end}}

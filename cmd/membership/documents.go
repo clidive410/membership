@@ -64,7 +64,7 @@ func documentsCmd(ctx context.Context, args []string, out io.Writer) error {
 	fmt.Fprintf(out, "differ from catalogue (size or md5): %d\n", len(res.Mismatched))
 	for _, a := range append(slices.Clone(documents.Levels), documents.Inherit) {
 		if n := res.ByAccess[a]; n > 0 {
-			fmt.Fprintf(out, "effective access %-9s %d\n", string(a)+":", n)
+			fmt.Fprintf(out, "effective access %-11s %d\n", string(a)+":", n)
 		}
 	}
 	if *verbose {
