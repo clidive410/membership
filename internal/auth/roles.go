@@ -23,8 +23,9 @@ const (
 	RoleMembershipManager Role = "membership_manager" // type/expiry/BSAC/payments
 	RoleMember            Role = "member"             // signed-in club member (own record, read-only)
 	// RoleEditor is a website editor. It grants nothing in the portal
-	// beyond what any signed-in user has (their own record); relying
-	// parties such as WordPress map it to their editor role.
+	// beyond what any signed-in user has (their own record, members-level
+	// documents); relying parties such as WordPress map it to their editor
+	// role.
 	RoleEditor Role = "editor"
 )
 
@@ -51,14 +52,18 @@ const (
 	PermViewAudit       Permission = "audit.view"
 	PermManageUsers     Permission = "users.manage"       // portal logins and roles
 	PermEditOwnPersonal Permission = "self.edit.personal" // future member self-service
+	PermViewDocuments   Permission = "documents.view"     // members-level documents (signed in)
+	PermManageDocuments Permission = "documents.manage"   // document library administration
 )
 
 var rolePermissions = map[Role][]Permission{
 	RoleAdmin: {PermViewMembers, PermCreateMembers, PermArchiveMembers, PermEditPersonal, PermEditClub,
-		PermEditMembership, PermRecordPayments, PermExport, PermEmailLists, PermViewAudit, PermManageUsers, PermEditOwnPersonal},
-	RoleMembershipManager: {PermViewMembers, PermEditMembership, PermRecordPayments, PermViewAudit},
-	RoleMember:            {PermEditOwnPersonal},
-	RoleEditor:            {},
+		PermEditMembership, PermRecordPayments, PermExport, PermEmailLists, PermViewAudit, PermManageUsers, PermEditOwnPersonal,
+		PermViewDocuments, PermManageDocuments},
+	RoleMembershipManager: {PermViewMembers, PermEditMembership, PermRecordPayments, PermViewAudit,
+		PermViewDocuments, PermManageDocuments},
+	RoleMember: {PermEditOwnPersonal, PermViewDocuments},
+	RoleEditor: {PermViewDocuments},
 }
 
 // Principal is the authenticated user of a request.
