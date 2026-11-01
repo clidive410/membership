@@ -486,7 +486,8 @@ func TestMemberLoginLinks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A committee user who is also a member: a link session is member-only.
+	// A committee user who is also a member: roles do not depend on the
+	// sign-in method, so a link session carries admin too.
 	uid, _ := as.EnsureUser(f.ctx, "alice@example.org")
 	as.SetPassword(f.ctx, uid, "a-long-test-password")
 	as.GrantRole(f.ctx, uid, auth.RoleAdmin)
@@ -495,12 +496,19 @@ func TestMemberLoginLinks(t *testing.T) {
 		t.Fatalf("committee member request: %+v %v", al, err)
 	}
 	ap, err := as.LoginWithToken(f.ctx, al.Token)
-	if err != nil || ap.IsCommittee() || ap.Can(auth.PermViewMembers) {
-		t.Fatalf("link session must not carry committee roles: %+v %v", ap, err)
+	if err != nil || !ap.HasRole(auth.RoleAdmin) || !ap.HasRole(auth.RoleMember) || !ap.Can(auth.PermViewMembers) || ap.AuthMethod != auth.LoginMethodMagicLink {
+		t.Fatalf("link sign-in of an admin must carry admin: %+v %v", ap, err)
 	}
 	linkSess, _ := as.CreateSession(f.ctx, uid, auth.LoginMethodMagicLink, time.Hour)
-	if lp, _ := as.LookupSession(f.ctx, linkSess); lp == nil || lp.IsCommittee() || !lp.HasRole(auth.RoleMember) {
+	if lp, _ := as.LookupSession(f.ctx, linkSess); lp == nil || !lp.HasRole(auth.RoleAdmin) || !lp.HasRole(auth.RoleMember) || lp.AuthMethod != auth.LoginMethodMagicLink {
 		t.Errorf("LookupSession of a link session: %+v", lp)
+	}
+	if st, _ := as.VerifySession(f.ctx, linkSess); st == nil || !st.Committee || !st.Member || st.MemberID != 101 {
+		t.Errorf("link session verify: %+v", st)
+	}
+	var method string
+	if err := f.app.QueryRowContext(f.ctx, "SELECT auth_method FROM sessions WHERE token_hash = ?", auth.HashToken(linkSess)).Scan(&method); err != nil || method != auth.LoginMethodMagicLink {
+		t.Errorf("link session method recorded as %q: %v", method, err)
 	}
 	pwSess, _ := as.CreateSession(f.ctx, uid, auth.LoginMethodPassword, time.Hour)
 	if st, _ := as.VerifySession(f.ctx, pwSess); st == nil || !st.Committee || !st.Member || st.MemberID != 101 {

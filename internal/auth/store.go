@@ -11,7 +11,8 @@ import (
 	"github.com/clidive410/membership/internal/members"
 )
 
-// Login methods recorded on sessions.
+// Login methods recorded on sessions. The method is kept for the audit log
+// only: a session carries the user's full roles whichever way it started.
 const (
 	LoginMethodPassword  = "password"
 	LoginMethodMagicLink = "magic_link" // emailed sign-in link (members)
@@ -234,9 +235,9 @@ func (s *Store) Authenticate(ctx context.Context, email, password string) (*Prin
 	return s.principal(ctx, id, LoginMethodPassword)
 }
 
-// principal loads a user's identity and roles. Sessions started with an
-// emailed link carry the member role only: committee roles need a password
-// sign-in, so that access to the admin UI never rests on email alone.
+// principal loads a user's identity and roles. The roles are the user's
+// full set whatever the sign-in method; method is recorded on the principal
+// for the audit log only.
 func (s *Store) principal(ctx context.Context, userID int64, method string) (*Principal, error) {
 	p := &Principal{UserID: userID, AuthMethod: method}
 	var memberID sql.NullInt64
@@ -248,16 +249,12 @@ func (s *Store) principal(ctx context.Context, userID int64, method string) (*Pr
 	if err != nil {
 		return nil, err
 	}
-	for _, r := range roles {
-		if method != LoginMethodMagicLink || r == RoleMember {
-			p.Roles = append(p.Roles, r)
-		}
-	}
+	p.Roles = roles
 	return p, nil
 }
 
 // PrincipalFor returns the principal a session of userID started with
-// method would carry (roles filtered as for LookupSession), or (nil, nil)
+// method would carry (the same roles for every method), or (nil, nil)
 // when the user does not exist or is disabled. The OpenID Connect provider
 // uses it to derive the roles claim of tokens issued from a session.
 func (s *Store) PrincipalFor(ctx context.Context, userID int64, method string) (*Principal, error) {
@@ -466,8 +463,8 @@ func (s *Store) RequestLoginLink(ctx context.Context, email string, ttl time.Dur
 	return link, err
 }
 
-// LoginWithToken consumes a sign-in link token and returns the member
-// principal to start a magic-link session for. The token is spent even
+// LoginWithToken consumes a sign-in link token and returns the
+// principal (with all the user's roles) to start a magic-link session for. The token is spent even
 // when the sign-in is then refused (user disabled, member archived or
 // unlinked, member role revoked): every such case is ErrInvalidToken.
 func (s *Store) LoginWithToken(ctx context.Context, token string) (*Principal, error) {
@@ -512,7 +509,7 @@ type SessionStatus struct {
 	MemberID  int64        // linked non-archived member, 0 if none
 	Expiry    sql.NullTime // that member's Clidive membership expiry
 	Member    bool         // the user has the member role
-	Committee bool         // a committee role, in a password session
+	Committee bool         // the user has a committee role
 }
 
 // VerifySession resolves a session token for forward_auth in a single
@@ -525,9 +522,8 @@ func (s *Store) VerifySession(ctx context.Context, token string) (*SessionStatus
 	var (
 		st       SessionStatus
 		memberID sql.NullInt64
-		method   string
 	)
-	err := s.DB.QueryRowContext(ctx, `SELECT u.id, m.id, m.membership_expiry, s.auth_method,
+	err := s.DB.QueryRowContext(ctx, `SELECT u.id, m.id, m.membership_expiry,
 			EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = u.id AND r.role = ?),
 			EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = u.id AND r.role IN (?, ?))
 		FROM sessions s
@@ -535,13 +531,12 @@ func (s *Store) VerifySession(ctx context.Context, token string) (*SessionStatus
 		LEFT JOIN members m ON m.id = u.member_id AND m.deleted_at IS NULL
 		WHERE s.token_hash = ? AND s.expires_at > UTC_TIMESTAMP() AND NOT u.disabled`,
 		string(RoleMember), string(RoleAdmin), string(RoleMembershipManager), HashToken(token)).
-		Scan(&st.UserID, &memberID, &st.Expiry, &method, &st.Member, &st.Committee)
+		Scan(&st.UserID, &memberID, &st.Expiry, &st.Member, &st.Committee)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	} else if err != nil {
 		return nil, err
 	}
 	st.MemberID = memberID.Int64
-	st.Committee = st.Committee && method != LoginMethodMagicLink
 	return &st, nil
 }

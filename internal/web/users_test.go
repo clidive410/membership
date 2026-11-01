@@ -253,3 +253,41 @@ func TestAdminGrantsWebsiteEditor(t *testing.T) {
 		t.Error("an unchanged form must not call SetAccess")
 	}
 }
+
+// Role badges use labels (the identifiers stay in the title), and the
+// Portal access screens say roles do not depend on the sign-in method.
+func TestRoleLabelsAndSignInHelp(t *testing.T) {
+	e := newEnv(t, "")
+	e.fa.addUser("ed@example.org", "", 0, auth.RoleEditor, auth.RoleMembershipManager)
+	body := e.do(t, "GET", "/admin/users", e.fa.session("admin@example.org"), nil).Body.String()
+	for _, want := range []string{`title="admin">Admin</span>`, `title="membership_manager">Membership manager</span>`,
+		`title="editor">Website editor</span>`, "Roles apply whichever way the user signs in"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("users page lacks %q", want)
+		}
+	}
+	if strings.Contains(body, "(with a password)") {
+		t.Error("users page still says editors need a password")
+	}
+	body = e.do(t, "GET", "/admin/members/1", e.fa.session("admin@example.org"), nil).Body.String()
+	if !strings.Contains(body, "Roles apply whichever way the user signs in") {
+		t.Error("member page Portal access lacks the sign-in help")
+	}
+	for name, want := range map[string]string{"admin": "Admin", "membership_manager": "Membership manager", "editor": "Website editor", "member": "Member"} {
+		if got := roleName(auth.Role(name)); got != want {
+			t.Errorf("roleName(%s) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestLoginPageCopy(t *testing.T) {
+	e := newEnv(t, "")
+	body := e.do(t, "GET", "/login", "", nil).Body.String()
+	link, pw := strings.Index(body, "Email me a sign-in link"), strings.Index(body, "<summary class=\"text-secondary\">Sign in with a password</summary>")
+	if link < 0 || pw < 0 || link > pw {
+		t.Errorf("login page: link section at %d, password section at %d", link, pw)
+	}
+	if strings.Contains(body, "Committee and website editors") {
+		t.Error("login page still restricts the password section to the committee")
+	}
+}

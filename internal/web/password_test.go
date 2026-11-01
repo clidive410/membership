@@ -221,4 +221,10 @@ func TestPasswordEmailTemplates(t *testing.T) {
 		!strings.Contains(m.Text, "(admin)") || !strings.Contains(m.HTML, "Set your password") {
 		t.Errorf("invite: %+v", m)
 	}
+	for _, body := range []string{m.Text, m.HTML} {
+		if strings.Contains(body, "Committee and website editors") || !strings.Contains(body, `"Sign in with a password"`) ||
+			!strings.Contains(body, "same") {
+			t.Errorf("invite wording must not tie roles to the password sign-in: %s", body)
+		}
+	}
 }

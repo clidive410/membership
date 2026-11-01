@@ -6,8 +6,9 @@ Your login is {{.Email}}. Use this link to set your password:
 {{.Link}}
 
 The link works once and expires in {{.Days}} days. Once your password is
-set, sign in at {{.LoginURL}} with "Committee and website editors: sign in
-with a password". If the link has expired, use "Forgotten your password?"
+set, sign in at {{.LoginURL}} with "Sign in with a password". If you are a
+club member you can instead use "Email me a sign-in link": you get the same
+access either way. If the link has expired, use "Forgotten your password?"
 on that page.
 
 If you were not expecting this, you can ignore this email or tell us at

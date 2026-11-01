@@ -123,7 +123,7 @@ contents are trimmed of surrounding whitespace. If both are set, `NAME` wins.
 | `COOKIE_SECURE`  | `true` if BASE_URL is https | Mark cookies `Secure`. |
 | `COOKIE_DOMAIN`  | (host-only)              | Session cookie domain, e.g. `clidive.org`, so the cookie also reaches the WordPress site for `/auth/verify`. |
 | `LISTEN_ADDR`    | `:8080`                  | HTTP listen address. The healthcheck probes its port on 127.0.0.1. |
-| `SESSION_TTL`    | `12h`                    | Lifetime of password (committee) sessions (Go duration). |
+| `SESSION_TTL`    | `12h`                    | Lifetime of sessions started with a password (Go duration). |
 | `MEMBER_SESSION_TTL` | `720h` (30 days)     | Lifetime of sessions started from an emailed sign-in link. |
 | `LOGIN_RETURN_URL` | (none)                 | Where members land after signing in when the link has no `next`, e.g. `https://www.clidive.org/`. Without it: `/me`. Absolute `next` URLs are only followed on this URL's scheme and host. |
 | `MIGRATE_ON_START` | `false`                | `true` makes `serve` apply pending migrations before listening, like `serve --migrate`. `AUTO_MIGRATE` is a deprecated alias, used only when `MIGRATE_ON_START` is unset. |
@@ -157,7 +157,12 @@ admins need not have one.
 | `admin`              | Everything: create, edit all fields, archive/restore, payments, CSV export, email lists, history, and portal access (logins and roles, `/admin/users`). |
 | `membership_manager` | View members; edit membership fields (Clidive type/expiry/join date, BSAC details, query/notes); record and delete payments; bulk payments; view history. Personal and club fields are shown read-only. |
 | `member`             | Sign in with an emailed link and view their own record at `/me` (read-only). No access to `/admin` (403). Granted automatically on the first link request. Self-service editing (own contact, address and emergency details only) is planned. |
-| `editor`             | Website editor: no portal permission beyond their own record. It exists for the `roles` claim, which the WordPress site maps to its editor role. Like the committee roles it is only carried by **password** sessions (an email-link session carries `member` only), so editors sign in with a password. Granted with the "Website editor" checkbox in Portal access, or `membership user grant -role editor`. |
+| `editor`             | Website editor: no portal permission beyond their own record. It exists for the `roles` claim, which the WordPress site maps to its editor role. Granted with the "Website editor" checkbox in Portal access, or `membership user grant -role editor`. |
+
+A user's roles do not depend on how they signed in: a session started
+from an emailed link and a password session carry the same, full set of
+roles. The sign-in method is recorded on the session (`auth_method`) for
+the audit log only.
 
 Every route declares its permission (`internal/web/server.go`). Field-level
 rules use field groups (`internal/members/fields.go`): the server applies only
@@ -221,8 +226,9 @@ CSRF-protected. The UI and the CLI call the same functions
 2. They receive "You've been given access to the Clidive members portal"
    with a link to `/password/reset?token=...`, valid 7 days, choose a
    password (at least 12 characters) and are signed in.
-3. Later they sign in at `/login` with "Committee: sign in with a
-   password"; "Forgotten your password?" sends a new link.
+3. Later they sign in at `/login` with "Sign in with a password"
+   ("Forgotten your password?" sends a new link) or, if they are a
+   member, with an emailed sign-in link: both give the same roles.
 4. To remove access, set their role to `none` (or
    `membership user revoke` / `disable`).
 
@@ -268,7 +274,7 @@ Members have no password. They sign in with a link sent to their primary
 email (Email 1), which identifies them:
 
 1. `GET /login` shows "Members: email me a sign-in link" (an email field)
-   and, collapsed below it, the committee password form.
+   and, collapsed below it, "Sign in with a password".
 2. `POST /login/link` (CSRF-protected) always answers with the same page:
    "If that address belongs to a current member, we've emailed a link". The
    lookup and the email happen in the background, so neither the page nor
@@ -298,9 +304,11 @@ email (Email 1), which identifies them:
    "This sign-in link has expired or has already been used". The route
    answers `GET` only, so a `HEAD` request cannot spend a link.
 
-A session started from a link carries the `member` role only, even for a
-committee user who is also a member: the admin UI always needs a password
-sign-in. Members see a top bar with only "My membership" and "Sign out";
+A session started from a link carries all of the user's roles, exactly as
+a password session does: a committee user who is also a member gets the
+admin UI, and a website editor gets `editor` in the `roles` claim, after
+either sign-in. Only the session lifetime differs (`MEMBER_SESSION_TTL`
+for links, `SESSION_TTL` for passwords). Members see a top bar with only "My membership" and "Sign out";
 `/admin` pages answer 403. `POST /logout` ends any session.
 
 `GET /me` shows the member's own record read-only: name, membership type,
@@ -315,7 +323,7 @@ token. The SMTP sender logs the recipient's domain.
 
 ## Password reset (committee logins)
 
-1. Under the committee password form, `GET /login` links to "Forgotten
+1. Under the password form, `GET /login` links to "Forgotten
    your password?" (`GET /password/forgot`, an email field).
 2. `POST /password/forgot` (CSRF-protected) always answers "If that
    address belongs to a committee login or a login with a password, we've
@@ -390,7 +398,7 @@ consent page once per user and client (`oidc_consents`).
 | `openid` | `sub`: `user:<users.id>`, stable. |
 | `email` | `email` (the login email), `email_verified: true` (signing in proves control of the mailbox). |
 | `profile` | `name`, `given_name`, `family_name` from the linked member record (`name` is the email when there is none). |
-| `clidive` | `member_id` (or `null`), `membership_status` (`active`, `expired` or `none` without a current member record), `membership_type` (or `null`), `membership_expiry` (`YYYY-MM-DD` or `null`), `roles` (portal roles of the session: `admin`, `membership_manager` and `editor` only after a password sign-in), `bsac_member_id` (only when present). |
+| `clidive` | `member_id` (or `null`), `membership_status` (`active`, `expired` or `none` without a current member record), `membership_type` (or `null`), `membership_expiry` (`YYYY-MM-DD` or `null`), `roles` (the user's portal roles: `admin`, `membership_manager`, `editor`, `member`; the same whether the session was started with an email link or a password), `bsac_member_id` (only when present). |
 | `offline_access` | A refresh token. |
 
 Addresses, phone numbers, dates of birth and emergency contacts are never
@@ -454,8 +462,8 @@ The headers below are set only when the cookie is a valid, unexpired
 session of an enabled user who either
 
 - has the `member` role and is linked to a non-archived member, or
-- has a committee role (`admin`, `membership_manager`) and signed in with a
-  password.
+- has a committee role (`admin`, `membership_manager`), whichever way it
+  signed in.
 
 | Header | Value |
 |--------|-------|

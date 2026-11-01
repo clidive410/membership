@@ -212,15 +212,42 @@ func TestLoginLinkArchivedBeforeUse(t *testing.T) {
 	}
 }
 
-func TestMagicLinkSessionIsMemberOnly(t *testing.T) {
+// Roles do not depend on the sign-in method: a link session of an admin
+// is an admin session.
+func TestMagicLinkSessionCarriesAllRoles(t *testing.T) {
 	e := newEnv(t, "")
 	e.fa.addUser("chair@example.org", "chair-password-12", 1, auth.RoleAdmin, auth.RoleMember)
-	tok := e.fa.sessionVia("chair@example.org", auth.LoginMethodMagicLink)
-	if w := e.do(t, "GET", "/admin/members", tok, nil); w.Code != http.StatusForbidden {
-		t.Errorf("committee access via a link session: %d", w.Code)
+	for _, method := range []string{auth.LoginMethodMagicLink, auth.LoginMethodPassword} {
+		tok := e.fa.sessionVia("chair@example.org", method)
+		if w := e.do(t, "GET", "/admin/members", tok, nil); w.Code != 200 {
+			t.Errorf("%s: committee access: %d", method, w.Code)
+		}
+		if w := e.do(t, "GET", "/me", tok, nil); w.Code != 200 {
+			t.Errorf("%s: /me: %d", method, w.Code)
+		}
 	}
-	if w := e.do(t, "GET", "/me", tok, nil); w.Code != 200 {
-		t.Errorf("/me: %d", w.Code)
+}
+
+// An admin who signs in with an emailed link gets an admin session.
+func TestLoginLinkAdminKeepsRoles(t *testing.T) {
+	e := newEnv(t, "")
+	e.fa.addUser("ada@example.org", "", 1, auth.RoleAdmin, auth.RoleMember)
+	_, link := e.requestLink(t, "ada@example.org", nil)
+	w := e.do(t, "GET", pathOf(t, link), "", nil)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("link sign-in: %d", w.Code)
+	}
+	c := cookieNamed(w, sessionCookie)
+	if c == nil {
+		t.Fatal("no session cookie")
+	}
+	tok := c.Value
+	p, _ := e.fa.LookupSession(context.Background(), tok)
+	if p == nil || !p.HasRole(auth.RoleAdmin) || !p.HasRole(auth.RoleMember) || p.AuthMethod != auth.LoginMethodMagicLink {
+		t.Fatalf("link session principal: %+v", p)
+	}
+	if w := e.do(t, "GET", "/admin/members", tok, nil); w.Code != 200 {
+		t.Errorf("admin UI via link session: %d", w.Code)
 	}
 }
 
@@ -358,7 +385,8 @@ func TestAuthVerify(t *testing.T) {
 		{"admin without member row", e.fa.session("admin@example.org"), "1", "active", ""},
 		{"manager without member row", e.fa.session("manager@example.org"), "1", "active", ""},
 		{"committee with an expired member row", e.fa.session("chair@example.org"), "1", "expired", "2"},
-		{"admin via link session, no member role", e.fa.sessionVia("admin@example.org", auth.LoginMethodMagicLink), "", "", ""},
+		{"admin via link session", e.fa.sessionVia("admin@example.org", auth.LoginMethodMagicLink), "1", "active", ""},
+		{"committee via link session, expired member row", e.fa.sessionVia("chair@example.org", auth.LoginMethodMagicLink), "1", "expired", "2"},
 		{"active member", e.fa.sessionVia("ada@example.org", auth.LoginMethodMagicLink), "1", "active", "1"},
 		{"expired member", e.fa.sessionVia("bob@example.org", auth.LoginMethodMagicLink), "1", "expired", "2"},
 		{"archived member", e.fa.sessionVia("cy@example.org", auth.LoginMethodMagicLink), "", "", ""},

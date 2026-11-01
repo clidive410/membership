@@ -2,10 +2,10 @@
 // hashing, sessions and CSRF tokens.
 //
 // Authentication is deliberately separate from the member record: a user is
-// a login identity keyed by email which may link to a member row. Committee
-// users sign in with a password. Members sign in with a single-use link
-// emailed to their primary address (Store.RequestLoginLink and
-// Store.LoginWithToken); such sessions carry the member role only.
+// a login identity keyed by email which may link to a member row. Users
+// sign in with a password, or members with a single-use link emailed to
+// their primary address (Store.RequestLoginLink and Store.LoginWithToken).
+// Either way the session carries all of the user's roles.
 package auth
 
 import (
@@ -24,8 +24,7 @@ const (
 	RoleMember            Role = "member"             // signed-in club member (own record, read-only)
 	// RoleEditor is a website editor. It grants nothing in the portal
 	// beyond what any signed-in user has (their own record); relying
-	// parties such as WordPress map it to their editor role. Like the
-	// committee roles it is only carried by password sessions.
+	// parties such as WordPress map it to their editor role.
 	RoleEditor Role = "editor"
 )
 
@@ -69,7 +68,8 @@ type Principal struct {
 	MemberID int64 // 0 when the user has no member row (e.g. some admins)
 	Roles    []Role
 	// AuthMethod is how the session was started (LoginMethodPassword or
-	// LoginMethodMagicLink).
+	// LoginMethodMagicLink), for the audit log only: it never affects
+	// Roles.
 	AuthMethod string
 }
 
