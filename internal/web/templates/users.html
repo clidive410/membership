@@ -3,7 +3,8 @@
 <section class="card mb-3" aria-labelledby="invite-h">
   <div class="card-header"><h2 class="card-title" id="invite-h">{{icon "user-plus"}} Invite by email</h2></div>
   <div class="card-body">
-    <p class="text-secondary">For committee members without a member record (members are invited from their member page). Creates the login if needed, grants the role and emails a link to set a password, valid for 7 days. <em>Website editor</em> also makes the login an editor of the club website when it signs in there through the portal (with a password).</p>
+    <p class="text-secondary">For committee members without a member record (members are invited from their member page). Creates the login if needed, grants the role and emails a link to set a password, valid for 7 days. <em>Website editor</em> also makes the login an editor of the club website when it signs in there through the portal.</p>
+    <p class="text-secondary">Roles apply whichever way the user signs in: an emailed sign-in link and a password give the same access.</p>
     <form method="post" action="{{url "/admin/users"}}" class="row g-2 align-items-end">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div class="col-md-6"><label class="form-label" for="invite-email">Email address</label>
@@ -31,7 +32,7 @@
       <tr id="user-{{$u.ID}}">
         <td>{{$u.Email}}{{if .Self}} <span class="badge bg-azure-lt">you</span>{{end}}</td>
         <td>{{if $u.MemberID.Valid}}<a href="{{url "/admin/members/"}}{{$u.MemberID.Int64}}">{{or $u.MemberName "(no name)"}}</a> <span class="text-secondary small">#{{$u.MemberID.Int64}}</span>{{else}}<span class="text-secondary">—</span>{{end}}</td>
-        <td>{{range $u.Roles}}<span class="badge bg-secondary-lt me-1">{{.}}</span>{{else}}<span class="text-secondary">none</span>{{end}}</td>
+        <td>{{range $u.Roles}}<span class="badge bg-secondary-lt me-1" title="{{.}}">{{roleName .}}</span>{{else}}<span class="text-secondary">none</span>{{end}}</td>
         <td>{{if $u.Disabled}}<span class="badge bg-red-lt">disabled</span>{{else}}<span class="badge bg-green-lt">enabled</span>{{end}}</td>
         <td>{{if $u.HasPassword}}set{{else}}<span class="text-secondary">not set</span>{{end}}</td>
         <td class="text-nowrap num">{{or (dateTime $u.LastLoginAt) "never"}}</td>

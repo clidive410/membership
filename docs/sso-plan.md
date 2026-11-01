@@ -117,10 +117,12 @@ or details beyond, the design above:
   reusing a rotated token, or reusing a code, revokes the whole grant.
 - Tokens are bound to the portal session and revoked on portal logout, `end_session`, `/oauth/revoke`,
   access "none"/disable, and also on a password change or reset.
-- `roles` reflects the session: committee roles and the new `editor` role are carried only by password
-  sessions (as the portal already did for the admin UI), so a website editor signs in with a password;
-  an email-link session yields `["member"]`. Editors can be invited by email (`user invite -role editor`)
-  and use password reset.
+- `roles` is the user's full set of portal roles (committee roles, the new `editor` role and `member`)
+  whichever way the portal session was started: an email-link session and a password session yield
+  the same claim (owner decision, 2026-11-01; an earlier iteration restricted link sessions to
+  `["member"]`). The sign-in method is kept on the session for the audit log only. Editors can be
+  invited by email (`user invite -role editor`) and use password reset; editors who are members can
+  equally sign in with an email link.
 - `end_session` with an `id_token_hint` for the signed-in user signs the portal out without asking;
   without a hint a signed-in user gets a confirmation page (a bare cross-site link never signs anyone out).
 - `prompt=login` and an exceeded `max_age` sign the portal session out and ask for a new sign-in;

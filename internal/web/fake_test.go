@@ -296,18 +296,10 @@ func (f *fakeAuth) addUser(email, password string, memberID int64, roles ...auth
 	f.users[email] = fakeUser{password: password, p: auth.Principal{UserID: int64(len(f.users) + 1), Email: email, MemberID: memberID, Roles: roles}}
 }
 
-// forMethod returns the principal of a session started with method.
+// forMethod returns the principal of a session started with method. Like
+// the real store it keeps every role: the method is only recorded.
 func forMethod(p auth.Principal, method string) *auth.Principal {
 	p.AuthMethod = method
-	if method == auth.LoginMethodMagicLink {
-		var roles []auth.Role
-		for _, r := range p.Roles {
-			if r == auth.RoleMember {
-				roles = append(roles, r)
-			}
-		}
-		p.Roles = roles
-	}
 	return &p
 }
 

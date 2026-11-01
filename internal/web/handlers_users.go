@@ -32,6 +32,23 @@ func newAccessView(p *auth.Principal, u *auth.User, email, action string) access
 	return v
 }
 
+// roleName labels a role in the UI. The identifiers (admin,
+// membership_manager, editor, member) stay as stored and as sent in the
+// OpenID Connect roles claim.
+func roleName(r auth.Role) string {
+	switch r {
+	case auth.RoleAdmin:
+		return "Admin"
+	case auth.RoleMembershipManager:
+		return "Membership manager"
+	case auth.RoleEditor:
+		return "Website editor"
+	case auth.RoleMember:
+		return "Member"
+	}
+	return string(r)
+}
+
 // accessName labels an access level in the UI.
 func accessName(a auth.Access) string {
 	switch a {

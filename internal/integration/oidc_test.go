@@ -598,7 +598,7 @@ func TestOIDCRefusalsAndChecks(t *testing.T) {
 }
 
 // TestOIDCClaimsByStatus checks the clidive claims for active, expired and
-// no-member users, and the roles of link and password sessions.
+// no-member users, and that link and password sessions carry the same roles.
 func TestOIDCClaimsByStatus(t *testing.T) {
 	e := newOIDCEnv(t, true)
 	now := time.Now().UTC()
@@ -655,7 +655,7 @@ func TestOIDCClaimsByStatus(t *testing.T) {
 			"membership_expiry": now.AddDate(0, -2, 0).Format("2006-01-02")}, nil},
 		{"no member", ed, auth.LoginMethodPassword, map[string]any{"membership_status": "none", "member_id": nil, "membership_type": nil,
 			"membership_expiry": nil, "roles": []string{"editor"}, "name": "editor@example.org", "email": "editor@example.org"}, []string{"bsac_member_id", "given_name"}},
-		{"committee via link", alice, auth.LoginMethodMagicLink, map[string]any{"roles": []string{"member"}, "bsac_member_id": "X0001"}, nil},
+		{"committee via link", alice, auth.LoginMethodMagicLink, map[string]any{"roles": []string{"admin", "editor", "member"}, "bsac_member_id": "X0001"}, nil},
 		{"committee via password", alice, auth.LoginMethodPassword, map[string]any{"roles": []string{"admin", "editor", "member"}}, nil},
 	} {
 		idc, ui := run(tc.uid, tc.method)
@@ -869,8 +869,8 @@ func TestEditorRoleAccess(t *testing.T) {
 	if u, _ = as.GetUser(f.ctx, res.UserID); !u.Editor() || u.Access() != auth.AccessMembershipManager {
 		t.Errorf("editor must survive a level change without Editor: %+v", u.Roles)
 	}
-	if p, _ := as.PrincipalFor(f.ctx, res.UserID, auth.LoginMethodMagicLink); p.HasRole(auth.RoleEditor) {
-		t.Error("link sessions must not carry the editor role")
+	if p, _ := as.PrincipalFor(f.ctx, res.UserID, auth.LoginMethodMagicLink); !p.HasRole(auth.RoleEditor) || !p.HasRole(auth.RoleMembershipManager) {
+		t.Error("link sessions carry the editor and committee roles too")
 	}
 	if p, _ := as.PrincipalFor(f.ctx, res.UserID, auth.LoginMethodPassword); !p.HasRole(auth.RoleEditor) || p.Can(auth.PermExport) {
 		t.Error("password sessions carry editor, which grants nothing")

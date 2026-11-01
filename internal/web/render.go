@@ -159,12 +159,15 @@ func mustParseTemplates(base string) map[string]*pageTemplate {
 		"roleLabel": func(p *auth.Principal) string {
 			switch {
 			case p.HasRole(auth.RoleAdmin):
-				return "Admin"
+				return roleName(auth.RoleAdmin)
 			case p.HasRole(auth.RoleMembershipManager):
-				return "Membership manager"
+				return roleName(auth.RoleMembershipManager)
+			case p.HasRole(auth.RoleEditor) && !p.HasRole(auth.RoleMember):
+				return roleName(auth.RoleEditor)
 			}
-			return "Member"
+			return roleName(auth.RoleMember)
 		},
+		"roleName": roleName,
 		"initials": func(email string) string {
 			if email == "" {
 				return "?"

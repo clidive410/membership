@@ -87,7 +87,7 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request, userID int
 	return nil
 }
 
-// handleLogin is the committee password sign-in.
+// handleLogin is the password sign-in.
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	email := members.NormalizeEmail(r.PostForm.Get("email"))
 	password := r.PostForm.Get("password")
