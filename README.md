@@ -23,6 +23,9 @@ Infrastructure lives in [`clidive410/infra`](https://github.com/clidive410/infra
 - `GET /auth/verify` lets Caddy `forward_auth` tell the WordPress site
   whether the visitor is a signed-in club member, and whether their
   membership has expired.
+- Document library at `/documents` (public, members and committee
+  documents in a folder tree), managed at `/admin/documents`; replaces the
+  old WordPress WP-Filebase library (see [Documents](#documents)).
 - `migrate-legacy` imports the legacy `membership` tables idempotently.
 - `seed-dev` fills an empty scratch database with invented members for UI work.
 
@@ -41,13 +44,14 @@ OpenID Connect provider. The UI uses the
 ## Layout
 
 ```
-cmd/membership/         CLI entrypoint: serve, migrate, migrate-legacy, user, oidc, healthcheck
+cmd/membership/         CLI entrypoint: serve, migrate, migrate-legacy, user, oidc, documents, healthcheck
 internal/config/        environment configuration (NAME or NAME_FILE)
 internal/db/            connection setup and embedded SQL migrations (migrations/*.sql)
 internal/members/       domain model, field groups, diffs, MariaDB repository, audit log
 internal/auth/          roles and permissions, argon2id, sessions, CSRF, login tokens
 internal/idp/           OpenID Connect provider: storage for zitadel/oidc, signing keys, clients, claims
 internal/legacy/        legacy field mapping and idempotent importer
+internal/documents/     document library: access rules, file storage, repository, WP-Filebase import
 internal/export/        CSV export and email-list formatting
 internal/mail/          SMTP sending (STARTTLS) of the sign-in emails
 internal/web/           handlers, middleware, page and email templates, Tabler CSS and overrides (embedded)
@@ -135,6 +139,8 @@ contents are trimmed of surrounding whitespace. If both are set, `NAME` wins.
 | `SMTP_PORT`      | `587`                    | `587` uses STARTTLS, `465` implicit TLS. TLS is required (except to a loopback server); the app never falls back to clear text. |
 | `SMTP_USERNAME`, `SMTP_PASSWORD` | (none)   | SMTP AUTH PLAIN credentials (set both or neither). Usually given as `SMTP_USERNAME_FILE`/`SMTP_PASSWORD_FILE`. |
 | `LEGACY_DB_DSN`  |                          | Default for `migrate-legacy -legacy-dsn`. |
+| `DOCUMENTS_DIR`  | `/srv/clidive/data/documents` (`./data/documents` with `LOG_FORMAT=text`) | Where document files are stored. Must not be under a web root; must be writable by the service user. Created at start if possible; if not, the error is logged and the portal still serves (uploads and downloads fail). |
+| `DOCUMENTS_MAX_UPLOAD_MB` | `50`            | Upload size limit for documents (1 to 2048). |
 | `OIDC_ISSUER`    | (= `BASE_URL`)           | Optional. The OIDC issuer is always `BASE_URL`; a different value is logged and ignored. |
 | `OIDC_WORDPRESS_CLIENT_ID` | (none)         | When set, `serve` creates or updates this OIDC client after migrations (`membership oidc client ensure`); failures are logged, never fatal. |
 | `OIDC_WORDPRESS_CLIENT_SECRET` | (none)     | Its secret (at least 32 characters), usually `OIDC_WORDPRESS_CLIENT_SECRET_FILE` (Swarm secret). |
@@ -156,8 +162,8 @@ admins need not have one.
 |----------------------|-----|
 | `admin`              | Everything: create, edit all fields, archive/restore, payments, CSV export, email lists, history, and portal access (logins and roles, `/admin/users`). |
 | `membership_manager` | View members; edit membership fields (Clidive type/expiry/join date, BSAC details, query/notes); record and delete payments; bulk payments; view history. Personal and club fields are shown read-only. |
-| `member`             | Sign in with an emailed link and view their own record at `/me` (read-only). No access to `/admin` (403). Granted automatically on the first link request. Self-service editing (own contact, address and emergency details only) is planned. |
-| `editor`             | Website editor: no portal permission beyond their own record. It exists for the `roles` claim, which the WordPress site maps to its editor role. Granted with the "Website editor" checkbox in Portal access, or `membership user grant -role editor`. |
+| `member`             | Sign in with an emailed link and view their own record at `/me` (read-only), and members documents. No access to `/admin` (403). Granted automatically on the first link request. Self-service editing (own contact, address and emergency details only) is planned. |
+| `editor`             | Website editor: no portal permission beyond their own record and members documents. It exists for the `roles` claim, which the WordPress site maps to its editor role. Granted with the "Website editor" checkbox in Portal access, or `membership user grant -role editor`. |
 
 A user's roles do not depend on how they signed in: a session started
 from an emailed link and a password session carry the same, full set of
@@ -267,6 +273,97 @@ membership migrate-legacy -legacy-dsn 'user:pw@tcp(legacy-host:3306)/ironmonger'
   it only during cutover.
 - The output contains only counts. With `-v` it also lists warnings, each
   giving a member id and column, never the value.
+
+## Documents
+
+The document library replaces the WP-Filebase plugin of the old WordPress
+site. Folders (`document_categories` in the code and database) form a tree; each document has a title, description, file
+(original name, size, SHA-256), uploader, date and download count.
+
+| Route | Who | What |
+|-------|-----|------|
+| `GET /documents` | everyone | Browse folders (`?cat=<slug>`: breadcrumb, subfolders, then documents with size and date, in one list) and search all documents (`?q=`). Each item is shown or not by its access. The same list component as the manage page (`browser` in `templates/partials.html`). |
+| `GET /documents/{id}/download` | per document | The file as an attachment. A visitor asking for a members or committee document is sent to sign in; anything else they may not see is 404. |
+| `/admin/documents` | `documents.manage` | Browse folders like a file manager (`?cat=<id>`: subfolders, then documents, in one list), search all documents, archived view. Upload; create, edit (name, description, parent, order, access) and archive/restore folders; edit (title, description, folder, access), replace the file of, and archive/restore documents. |
+
+**Access levels.** `public` (no sign-in), `members` (any signed-in user:
+members, expired members too, with a renewal note, and website editors) and
+`committee` (roles `admin` and `membership_manager`). A folder is never
+more open than its parent (the most restrictive level on the way up
+applies). A document is `inherit` (its folder's level, the default) or has
+its own level, which may be more open than the folder: a public document
+in a committee folder is listed to visitors under that folder. A
+top-level document that inherits, an unknown level or a broken parent chain
+counts as committee. Archiving a folder hides it, its subfolders and
+their documents; archived items are never downloadable, even by the
+committee (restore first). Permissions: `documents.view` (all roles) and
+`documents.manage` (`admin`, `membership_manager`).
+
+**Files.** Stored under `DOCUMENTS_DIR` as `<random hex>.bin`, never under a
+web root, and only served by the download handler: `Content-Disposition:
+attachment` with the sanitised original name, the stored `Content-Type`
+(fallback `application/octet-stream`), `X-Content-Type-Options: nosniff`.
+Uploads accept `pdf doc docx xls xlsx ppt pptx odt ods csv txt jpg jpeg png
+gif zip` up to `DOCUMENTS_MAX_UPLOAD_MB`; the type is taken from the
+extension, never from the browser. Uploads and downloads bypass the 30 second
+handler timeout (they get 15 minutes); uploads beyond 8 MB are buffered in a
+temporary file under `os.TempDir()` until the request ends, so `/tmp` must
+be writable. Replacing a file deletes the old one; archiving keeps it.
+
+**Audit.** Every folder and document change (`doccat.*`, `document.*`,
+with the changed fields) and every download (`document.download`, user id,
+or `anonymous` for public documents) is written to `audit_log` with
+`entity = document|document_category`. Downloads also increment
+`documents.downloads` (range requests are not counted).
+
+### Importing the WP-Filebase library
+
+```sh
+DOCUMENTS_DIR=/srv/clidive/data/documents membership documents import-legacy \
+  -catalog-dsn 'user:pw@tcp(host:3306)/wordpress' \
+  -files-dir /path/to/wp-content/uploads/filebase [-dry-run] [-v]
+```
+
+- Reads `dbt_wpfb_cats` and `dbt_wpfb_files` (SELECTs only) and copies each
+  file, found at `-files-dir/<file_path>`, into `DOCUMENTS_DIR` under a new
+  name; the copy is re-read and its SHA-256 and size checked, and size and md5
+  are compared with the catalogue (differences are reported, the file is
+  imported as found).
+- Folders keep their parents, names, descriptions and order; files map
+  to documents with title `file_display_name` (or the file name),
+  description, type from the extension (anything outside the upload
+  allow-list, such as `.html`, is served as `application/octet-stream`),
+  size, date `file_date`, `legacy_id = file_id` and `legacy_path`.
+- A file missing on disk is still imported, archived, with
+  "(file missing in migration)" appended to its description; the import
+  carries on. A later run copies it if it has turned up and restores it.
+- **Access mapping** (club decision, 2026-11-01; `legacyCategoryAccess`,
+  `legacyFileAccess` and `movedToArchive` in `internal/documents/legacy.go`):
+  every folder is `committee` and every file `inherit` (so committee);
+  the one file whose WordPress role list is empty becomes `public`; the
+  top-level folder "BSAC Courses (not updated)" moves under a new
+  top-level folder "Archive" (committee). The summary prints the number of
+  documents per effective access level.
+- Idempotent: folders are matched on `legacy_key` (`wpfb-cat:<cat_id>`,
+  `archive`) and documents on `legacy_id`. A re-run updates metadata and
+  re-applies the mapping (overwriting portal edits to imported titles,
+  descriptions, folders and access), and never copies a file twice. One
+  transaction; files copied by a failed run are removed. `-dry-run` checks
+  everything, rolls back and copies nothing. Output is counts only; `-v`
+  adds the legacy file ids that are missing or differ.
+
+On the 2026 catalogue (171 folders, 654 files, 831 MB): 172 folders
+(with Archive), 654 documents, 652 files copied, 2 missing (two `.html`
+pages of the course material, one of them empty in WordPress already),
+none differing; 1 public document, 653 committee.
+
+### Infrastructure
+
+The service needs a bind mount for `DOCUMENTS_DIR`, e.g. the host directory
+`/srv/clidive/data/documents` mounted at the same path, writable by the
+image's user (`nonroot`, uid/gid 65532: `chown 65532:65532`), and included in
+the instance backups. Without it the portal works, but uploads fail and
+files would not survive a redeploy.
 
 ## Member sign-in (email links)
 
@@ -607,6 +704,8 @@ without a default.
 | `LOG_FORMAT` | `json` (default). |
 | `LOG_LEVEL` | `info` (default). |
 | `MIGRATE_ON_START` | `true`, or run the command `serve --migrate`. |
+| `DOCUMENTS_DIR` | `/srv/clidive/data/documents` (default), on a bind mount writable by uid 65532 (see [Documents](#infrastructure)). |
+| `DOCUMENTS_MAX_UPLOAD_MB` | `50` (default). |
 
 All variables are described under [Configuration](#configuration).
 

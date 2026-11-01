@@ -14,12 +14,30 @@ import (
 	"strings"
 
 	"github.com/clidive410/membership/internal/auth"
+	"github.com/clidive410/membership/internal/documents"
 	"github.com/clidive410/membership/internal/members"
 )
 
+// docAccessLabels names the document access levels in the UI.
+var docAccessLabels = map[documents.Access]string{
+	documents.Public: "Everyone (public)", documents.Members: "Members (signed in)",
+	documents.Committee: "Committee only", documents.Inherit: "Same as folder",
+}
+
+// formatBytes renders a file size: 512 B, 3.4 kB, 12.0 MB.
+func formatBytes(n int64) string {
+	switch {
+	case n < 1000:
+		return strconv.FormatInt(n, 10) + " B"
+	case n < 1000*1000:
+		return strconv.FormatFloat(float64(n)/1000, 'f', 1, 64) + " kB"
+	}
+	return strconv.FormatFloat(float64(n)/1000/1000, 'f', 1, 64) + " MB"
+}
+
 type pageTemplate struct{ t *template.Template }
 
-var pageNames = []string{"login", "linksent", "forgot", "reset", "users", "me", "members", "member", "payments", "emails", "error", "consent", "endsession"}
+var pageNames = []string{"login", "linksent", "forgot", "reset", "users", "me", "members", "member", "payments", "emails", "error", "consent", "endsession", "documents", "docadmin", "doccategory", "document"}
 
 // typeColors maps the legacy membership type ids to badge colours; unknown
 // types fall back to the default badge.
@@ -167,7 +185,9 @@ func mustParseTemplates(base string) map[string]*pageTemplate {
 			}
 			return roleName(auth.RoleMember)
 		},
-		"roleName": roleName,
+		"roleName":  roleName,
+		"bytes":     formatBytes,
+		"docAccess": func(a documents.Access) string { return docAccessLabels[a] },
 		"initials": func(email string) string {
 			if email == "" {
 				return "?"
@@ -216,6 +236,15 @@ var flashes = map[string]string{
 	"access-saved":    "Portal access updated.",
 	"access-revoked":  "Portal access removed: the login is disabled and signed out everywhere.",
 	"invite-sent":     "Invitation emailed: it carries a link to set a password, valid for 7 days.",
+	"cat-created":     "Folder created.",
+	"cat-saved":       "Folder saved.",
+	"cat-archived":    "Folder archived: it and everything in it are hidden from the library.",
+	"cat-restored":    "Folder restored.",
+	"doc-uploaded":    "Document uploaded.",
+	"doc-saved":       "Document saved.",
+	"doc-replaced":    "File replaced.",
+	"doc-archived":    "Document archived: it is hidden from the library; the file is kept.",
+	"doc-restored":    "Document restored.",
 }
 
 // flashErrors are fixed error messages selected by ?flash=.
@@ -229,7 +258,8 @@ var flashErrors = map[string]string{
 }
 
 // navFor maps a page template to its sidebar entry.
-var navFor = map[string]string{"users": "users", "members": "members", "member": "members", "payments": "payments", "emails": "emails", "me": "me"}
+var navFor = map[string]string{"users": "users", "members": "members", "member": "members", "payments": "payments", "emails": "emails", "me": "me",
+	"documents": "documents", "docadmin": "documents", "doccategory": "documents", "document": "documents"}
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name, title string, data any) {
 	pg := page{

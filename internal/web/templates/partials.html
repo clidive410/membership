@@ -71,3 +71,35 @@
   <button type="submit" name="action" value="invite" class="btn btn-outline-secondary btn-sm">{{icon "mail"}} Send invite / reset email</button>
   {{- end}}
 </form>{{end}}
+
+{{/* browser: the folder and document list of /documents and /admin/documents (web.browser). */}}
+{{define "browser"}}<section class="card" aria-labelledby="browse-h">
+  <div class="card-header">
+    <h2 class="card-title" id="browse-h">{{with .Title}}{{.}}{{else}}{{range $i, $c := .Crumbs}}{{if $i}} › {{end}}{{if $c.Href}}<a href="{{$c.Href}}">{{$c.Name}}</a>{{else}}{{$c.Name}}{{end}}{{end}}{{end}}</h2>
+    <span class="card-actions text-secondary small">{{.Count}}</span>
+  </div>
+  <div class="card-body border-bottom">
+    <form method="get" action="{{.Action}}" role="search" class="row g-2">
+      {{range $k, $v := .Hidden}}<input type="hidden" name="{{$k}}" value="{{$v}}">{{end}}
+      <div class="col"><label class="visually-hidden" for="browse-q">Search all documents</label>
+        <div class="input-icon"><span class="input-icon-addon">{{icon "search"}}</span>
+        <input id="browse-q" class="form-control" type="search" name="q" value="{{.Query}}" placeholder="Search all documents"></div></div>
+      {{if .ArchivedToggle}}<div class="col-auto"><label class="form-check mt-2"><input class="form-check-input" type="checkbox" name="show" value="archived"{{if .Archived}} checked{{end}}><span class="form-check-label">Archived</span></label></div>{{end}}
+      <div class="col-auto"><button class="btn" type="submit">Search</button></div>
+    </form>
+  </div>
+  {{if .Rows}}<div class="table-responsive"><table class="table table-vcenter card-table">
+    <thead><tr><th scope="col">Name</th>{{if .AccessCol}}<th scope="col">Who can see it</th>{{end}}<th scope="col" class="text-end">Size</th><th scope="col" class="text-end">Date</th>{{if .DownloadsCol}}<th scope="col" class="text-end">Downloads</th>{{end}}</tr></thead>
+    <tbody>{{range .Rows}}<tr>
+      <td><a href="{{.Href}}">{{if .Folder}}{{icon "folder"}}{{else}}{{icon "file-text"}}{{end}} {{.Name}}</a>{{with .Badge}} <span class="badge bg-secondary-lt">{{.}}</span>{{end}}
+        {{- with .Path}}<div class="small text-secondary">{{.}}</div>{{end}}
+        {{- with .Note}}<div class="small text-secondary">{{.}}</div>{{end}}</td>
+      {{if $.AccessCol}}<td class="small">{{docAccess .Access}}{{if .Inherited}} <span class="text-secondary">(from folder)</span>{{end}}</td>{{end}}
+      <td class="num text-end text-nowrap{{if .Folder}} small text-secondary{{end}}">{{.Size}}</td>
+      <td class="num text-end text-nowrap">{{.Date}}</td>
+      {{if $.DownloadsCol}}<td class="num text-end">{{if not .Folder}}{{.Downloads}}{{end}}</td>{{end}}
+    </tr>{{end}}</tbody>
+  </table></div>
+  {{if gt .Pager.Pages 1}}<div class="card-footer d-flex align-items-center"><span class="text-secondary small">{{.Pager.From}}–{{.Pager.To}} of {{.Pager.Total}}</span>{{template "pagination" .Pager}}</div>{{end}}
+  {{else}}<div class="card-body text-secondary">{{.Empty}}</div>{{end}}
+</section>{{end}}

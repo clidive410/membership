@@ -7,7 +7,7 @@ are copied unmodified from the published npm tarballs.
 | Package | Version | Licence | Files | Source |
 |---------|---------|---------|-------|--------|
 | [@tabler/core](https://tabler.io) (Bootstrap 5 based) | 1.6.1 | MIT, see `tabler/LICENSE` | `tabler/css/tabler.min.css` | https://registry.npmjs.org/@tabler/core/-/core-1.6.1.tgz, `package/dist/css/tabler.min.css` |
-| [@tabler/icons](https://tabler.io/icons) | 3.48.0 | MIT, see `tabler-icons/LICENSE` | 26 outline SVGs in `tabler-icons/outline/` | https://registry.npmjs.org/@tabler/icons/-/icons-3.48.0.tgz, `package/icons/outline/*.svg` |
+| [@tabler/icons](https://tabler.io/icons) | 3.48.0 | MIT, see `tabler-icons/LICENSE` | 28 outline SVGs in `tabler-icons/outline/` | https://registry.npmjs.org/@tabler/icons/-/icons-3.48.0.tgz, `package/icons/outline/*.svg` |
 | [@fontsource/open-sans-condensed](https://fontsource.org/fonts/open-sans-condensed) (the club site's heading font) | 4.5.5 (font v21) | Apache 2.0, see `open-sans-condensed/LICENSE` | `open-sans-condensed/open-sans-condensed-latin-700-normal.woff2` (Bold, latin subset only) | https://registry.npmjs.org/@fontsource/open-sans-condensed/-/open-sans-condensed-4.5.5.tgz, `package/files/` |
 
 Tabler's JavaScript is not used. The few interactive bits (sidebar on small

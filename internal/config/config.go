@@ -46,6 +46,29 @@ type Config struct {
 	// TRUSTED_PROXIES: comma-separated CIDRs of reverse proxies whose
 	// X-Forwarded-For is believed (e.g. the Swarm overlay network).
 	TrustedProxies []netip.Prefix
+	// DOCUMENTS_DIR: where document files are stored, outside any web
+	// root. Default /srv/clidive/data/documents, or ./data/documents in
+	// development (LOG_FORMAT=text).
+	DocumentsDir string
+	// DOCUMENTS_MAX_UPLOAD_MB: upload size limit, default 50.
+	DocumentsMaxUploadMB int
+}
+
+// DefaultDocumentsDir is DOCUMENTS_DIR's default.
+func DefaultDocumentsDir(development bool) string {
+	if development {
+		return "./data/documents"
+	}
+	return "/srv/clidive/data/documents"
+}
+
+// LoadDocumentsDir reads only DOCUMENTS_DIR (for the import command).
+func LoadDocumentsDir(getenv Getenv) (string, error) {
+	v, err := lookup(getenv, "DOCUMENTS_DIR")
+	if v == "" && err == nil {
+		v = DefaultDocumentsDir(strings.ToLower(getenv("LOG_FORMAT")) == "text")
+	}
+	return v, err
 }
 
 // Development reports whether the service runs in local development mode
@@ -267,6 +290,11 @@ func Load(getenv Getenv) (*Config, error) {
 			continue
 		}
 		c.TrustedProxies = append(c.TrustedProxies, pfx.Masked())
+	}
+	c.DocumentsDir = get("DOCUMENTS_DIR", DefaultDocumentsDir(c.LogFormat == "text"))
+	c.DocumentsMaxUploadMB, err = strconv.Atoi(get("DOCUMENTS_MAX_UPLOAD_MB", "50"))
+	if err != nil || c.DocumentsMaxUploadMB <= 0 || c.DocumentsMaxUploadMB > 2048 {
+		errs = append(errs, fmt.Errorf("DOCUMENTS_MAX_UPLOAD_MB must be a whole number of megabytes between 1 and 2048"))
 	}
 	if c.LogFormat != "json" && c.LogFormat != "text" {
 		errs = append(errs, fmt.Errorf("LOG_FORMAT must be json or text"))

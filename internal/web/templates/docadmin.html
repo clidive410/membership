@@ -1,0 +1,58 @@
+{{define "actions"}}{{with .Data.CatID}}<a class="btn btn-outline-secondary" href="{{url "/admin/documents/categories/"}}{{.}}">Edit folder</a>{{end}}{{end}}
+{{define "subtitle"}}<div class="page-subtitle">Folders, uploads and who can see what. <a href="{{url "/documents"}}">View the library</a></div>{{end}}
+
+{{/* accesssel: Name, ID, Levels, Value */}}
+{{define "accesssel"}}<select class="form-select" id="{{.ID}}" name="{{.Name}}">{{$v := .Value}}{{range .Levels}}<option value="{{.}}"{{if eq (print .) $v}} selected{{end}}>{{docAccess .}}</option>{{end}}</select>{{end}}
+{{/* catsel: Name, ID, Cats, Value, Top (label of the empty option) */}}
+{{define "catsel"}}<select class="form-select" id="{{.ID}}" name="{{.Name}}">{{$v := .Value}}<option value="">{{.Top}}</option>{{range .Cats}}<option value="{{.ID}}"{{if eq (itoa .ID) $v}} selected{{end}}>{{.Label}}{{if .Archived}} (archived){{end}}</option>{{end}}</select>{{end}}
+
+{{define "content"}}{{$d := .Data}}
+{{with $d.Error}}<div class="alert alert-danger" role="alert"><div class="alert-icon">{{icon "alert-triangle"}}</div><div>{{.}}</div></div>{{end}}
+<div class="row row-cards">
+  <div class="col-12">
+    {{template "browser" $d.B}}
+  </div>
+  <div class="col-lg-6">
+    <section class="card h-100" aria-labelledby="up-h">
+      <div class="card-header"><h2 class="card-title" id="up-h">Upload a document</h2></div>
+      <form class="card-body" method="post" action="{{url "/admin/documents"}}" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <div class="mb-3"><label class="form-label required" for="up-file">File</label>
+          <input class="form-control" id="up-file" name="file" type="file" required aria-describedby="up-file-hint">
+          <small class="form-hint" id="up-file-hint">Up to {{$d.MaxMB}} MB: {{$d.Extensions}}.</small></div>
+        <div class="mb-3"><label class="form-label" for="up-title">Title</label>
+          <input class="form-control" id="up-title" name="title" maxlength="255" value="{{$d.Form.Get "title"}}" placeholder="Defaults to the file name"></div>
+        <div class="mb-3"><label class="form-label" for="up-desc">Description</label>
+          <input class="form-control" id="up-desc" name="description" maxlength="2000" value="{{$d.Form.Get "description"}}"></div>
+        <div class="row">
+          <div class="col-md-6 mb-3"><label class="form-label" for="up-cat">Folder</label>{{template "catsel" (dict "Name" "category" "ID" "up-cat" "Cats" $d.Categories "Value" (or ($d.Form.Get "category") $d.Cat) "Top" "(top level)")}}</div>
+          <div class="col-md-6 mb-3"><label class="form-label" for="up-access">Who can see it</label>{{template "accesssel" (dict "Name" "access" "ID" "up-access" "Levels" $d.Levels "Value" (or ($d.Form.Get "access") "inherit"))}}</div>
+        </div>
+        <button type="submit" class="btn btn-primary">{{icon "plus"}} Upload</button>
+      </form>
+    </section>
+  </div>
+  <div class="col-lg-6">
+    <section class="card h-100" aria-labelledby="nc-h">
+      <div class="card-header"><h2 class="card-title" id="nc-h">{{if $d.CatID}}New subfolder{{else}}New folder{{end}}</h2></div>
+      <form class="card-body" method="post" action="{{url "/admin/documents/categories"}}{{with $d.CatID}}?cat={{.}}{{end}}">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <div class="mb-3"><label class="form-label required" for="nc-name">Name</label>
+          <input class="form-control" id="nc-name" name="name" required maxlength="255" value="{{$d.Form.Get "name"}}"></div>
+        <div class="mb-3"><label class="form-label" for="nc-desc">Description</label>
+          <input class="form-control" id="nc-desc" name="description" maxlength="2000"></div>
+        <div class="row">
+          {{if $d.CatID}}<input type="hidden" name="parent" value="{{$d.CatID}}">
+          <div class="col-md-5 mb-3"><span class="form-label">Inside</span><div class="form-control-plaintext">{{icon "folder"}} {{$d.CatName}}</div></div>
+          {{else}}<div class="col-md-5 mb-3"><label class="form-label" for="nc-parent">Parent</label>{{template "catsel" (dict "Name" "parent" "ID" "nc-parent" "Cats" $d.Categories "Value" ($d.Form.Get "parent") "Top" "(top level)")}}</div>{{end}}
+          <div class="col-md-4 mb-3"><label class="form-label" for="nc-access">Who can see it</label>{{template "accesssel" (dict "Name" "access" "ID" "nc-access" "Levels" (slice $d.Levels 0 3) "Value" "committee")}}</div>
+          <div class="col-md-3 mb-3"><label class="form-label" for="nc-order">Order</label>
+            <input class="form-control" id="nc-order" name="sort_order" inputmode="numeric" value="0"></div>
+        </div>
+        <button type="submit" class="btn btn-primary">{{icon "plus"}} Create folder</button>
+      </form>
+    </section>
+  </div>
+
+</div>
+{{end}}

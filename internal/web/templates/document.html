@@ -1,0 +1,48 @@
+{{define "pretitle"}}<div class="page-pretitle"><a href="{{url "/admin/documents"}}">Manage documents</a></div>{{end}}
+{{define "heading"}}{{.Data.D.Title}}{{end}}
+{{define "subtitle"}}{{$x := .Data.D}}<div class="page-subtitle">{{docAccess .Data.Effective}}{{if .Data.Hidden}} · archived{{end}} · {{$x.FileName}}, {{bytes $x.SizeBytes}} · {{$x.Downloads}} download(s){{if $x.SHA256}} · <a href="{{url "/documents/"}}{{$x.ID}}/download">download</a>{{end}}</div>{{end}}
+
+{{define "content"}}{{$d := .Data}}{{$x := $d.D}}
+{{with $d.Error}}<div class="alert alert-danger" role="alert"><div class="alert-icon">{{icon "alert-triangle"}}</div><div>{{.}}</div></div>{{end}}
+{{if not $x.SHA256}}<div class="alert alert-warning" role="status"><div class="alert-icon">{{icon "alert-triangle"}}</div><div>The file is missing. Upload it below to make the document available again.</div></div>{{end}}
+<div class="row row-cards">
+  <div class="col-lg-7">
+    <section class="card h-100" aria-labelledby="doc-h">
+      <div class="card-header"><h2 class="card-title" id="doc-h">Details</h2></div>
+      <form class="card-body" method="post" action="{{url "/admin/documents/"}}{{$x.ID}}">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <div class="mb-3"><label class="form-label required" for="d-title">Title</label>
+          <input class="form-control" id="d-title" name="title" required maxlength="255" value="{{$x.Title}}"></div>
+        <div class="mb-3"><label class="form-label" for="d-desc">Description</label>
+          <input class="form-control" id="d-desc" name="description" maxlength="2000" value="{{$x.Description}}"></div>
+        <div class="row">
+          <div class="col-md-6 mb-3"><label class="form-label" for="d-cat">Folder</label>
+            <select class="form-select" id="d-cat" name="category"><option value="">(top level)</option>
+            {{range $d.Categories}}<option value="{{.ID}}"{{if and $x.CategoryID.Valid (eq .ID $x.CategoryID.Int64)}} selected{{end}}>{{.Label}}{{if .Archived}} (archived){{end}}</option>{{end}}</select></div>
+          <div class="col-md-6 mb-3"><label class="form-label" for="d-access">Who can see it</label>
+            <select class="form-select" id="d-access" name="access">{{range $d.Levels}}<option value="{{.}}"{{if eq . $x.Access}} selected{{end}}>{{docAccess .}}</option>{{end}}</select></div>
+        </div>
+        <button type="submit" class="btn btn-primary">{{icon "device-floppy"}} Save</button>
+      </form>
+    </section>
+  </div>
+  <div class="col-lg-5">
+    <section class="card h-100" aria-labelledby="rep-h">
+      <div class="card-header"><h2 class="card-title" id="rep-h">Replace the file</h2></div>
+      <form class="card-body" method="post" action="{{url "/admin/documents/"}}{{$x.ID}}/file" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <div class="mb-3"><label class="form-label required" for="r-file">New file</label>
+          <input class="form-control" id="r-file" name="file" type="file" required aria-describedby="r-file-hint">
+          <small class="form-hint" id="r-file-hint">Up to {{$d.MaxMB}} MB: {{$d.Extensions}}. The old file is deleted.</small></div>
+        <button type="submit" class="btn btn-outline-primary">{{icon "download"}} Replace</button>
+      </form>
+      <div class="card-footer small text-secondary">Uploaded {{$x.UploadedAt.Format "02/01/2006 15:04"}} UTC{{if $x.LegacyID.Valid}} · imported from the old site{{end}}{{with $x.SHA256}}<br>SHA-256 <code class="text-break">{{.}}</code>{{end}}</div>
+    </section>
+  </div>
+</div>
+<form class="mt-3" method="post" action="{{url "/admin/documents/"}}{{$x.ID}}/{{if $x.ArchivedAt.Valid}}restore{{else}}archive{{end}}">
+  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+  {{if $x.ArchivedAt.Valid}}<button type="submit" class="btn btn-outline-secondary">{{icon "restore"}} Restore document</button>
+  {{else}}<button type="submit" class="btn btn-outline-danger">{{icon "archive"}} Archive document</button> <small class="form-hint">Hides it from the library; the file is kept.</small>{{end}}
+</form>
+{{end}}

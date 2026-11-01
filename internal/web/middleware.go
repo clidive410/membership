@@ -4,7 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"log/slog"
+	"mime"
 	"net"
 	"net/http"
 	"net/netip"
@@ -25,6 +28,9 @@ const (
 	csrfCookie    = "clidive_csrf"
 	csrfField     = "csrf_token"
 	maxFormBytes  = 1 << 20
+	// multipartMemory is how much of an upload is held in memory; the rest
+	// goes to a temporary file (os.TempDir) until the request ends.
+	multipartMemory = 8 << 20
 )
 
 type ctxKey int
@@ -125,10 +131,31 @@ func (s *Server) checkCSRF(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
-			return
+		if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt == "multipart/form-data" {
+			// File uploads: a large body only for document managers on the
+			// upload paths; anyone else keeps the normal form limit.
+			limit := int64(maxFormBytes)
+			if s.opt.Documents != nil && uploadPathRE.MatchString(r.URL.Path) && principalFrom(r.Context()).Can(auth.PermManageDocuments) {
+				limit += s.maxUpload()
+				_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(longRequestTimeout))
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, limit)
+			if err := r.ParseMultipartForm(multipartMemory); err != nil {
+				var tooBig *http.MaxBytesError
+				if errors.As(err, &tooBig) {
+					s.renderError(w, r, http.StatusRequestEntityTooLarge, fmt.Sprintf("The file is too large: the limit is %d MB.", s.maxUpload()>>20))
+					return
+				}
+				http.Error(w, "bad form", http.StatusBadRequest)
+				return
+			}
+			defer r.MultipartForm.RemoveAll()
+		} else {
+			r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
+			if err := r.ParseForm(); err != nil {
+				http.Error(w, "bad form", http.StatusBadRequest)
+				return
+			}
 		}
 		c, err := r.Cookie(csrfCookie)
 		if err != nil || !s.csrf.Valid(c.Value, r.PostForm.Get(csrfField)) {
@@ -320,10 +347,21 @@ func requestIDFrom(ctx context.Context) string {
 }
 
 // timeout cancels the request context after d and answers 503 if the
-// handler has not finished by then (net/http's TimeoutHandler).
-func timeout(d time.Duration) func(http.Handler) http.Handler {
+// handler has not finished by then (net/http's TimeoutHandler). Document
+// uploads and downloads bypass it, since TimeoutHandler buffers the whole
+// response: they get longRequestTimeout on the context instead.
+func (s *Server) timeout(d time.Duration) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
-		return http.TimeoutHandler(next, d, "The request took too long. Please try again.")
+		th := http.TimeoutHandler(next, d, "The request took too long. Please try again.")
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if s.opt.Documents != nil && longRequest(r, strings.TrimPrefix(r.URL.Path, s.opt.BasePath)) {
+				ctx, cancel := context.WithTimeout(r.Context(), longRequestTimeout)
+				defer cancel()
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+			th.ServeHTTP(w, r)
+		})
 	}
 }
 
