@@ -288,8 +288,14 @@ func TestStoresAgainstMariaDB(t *testing.T) {
 	if err != nil || len(cur) != 2 {
 		t.Fatalf("not-archived list: %d %v", len(cur), err)
 	}
-	if def, _ := store.ListMembers(f.ctx, members.Filter{Today: time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC)}); len(def) != len(cur) {
-		t.Errorf("current list with nothing expired yet should equal the not-archived list: %d vs %d", len(def), len(cur))
+	if def, _ := store.ListMembers(f.ctx, members.Filter{}); len(def) != 1 || def[0].ID != 101 {
+		t.Errorf("default list should be the not-archived members without the Social type: %+v", def)
+	}
+	if def, _ := store.ListMembers(f.ctx, members.Filter{TypeID: 3}); len(def) != 1 || def[0].ID != 103 {
+		t.Errorf("default list filtered by the Social type should show Social members: %+v", def)
+	}
+	if ne, _ := store.ListMembers(f.ctx, members.Filter{Status: members.StatusNotExpired, Today: time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC)}); len(ne) != len(cur) {
+		t.Errorf("not-expired list with nothing expired yet should equal the not-archived list: %d vs %d", len(ne), len(cur))
 	}
 	all, _ := store.ListMembers(f.ctx, members.Filter{Status: members.StatusAll, Sort: "last_paid", Desc: true})
 	if len(all) != 3 || all[0].ID != 101 {
@@ -308,8 +314,8 @@ func TestStoresAgainstMariaDB(t *testing.T) {
 	if expired, _ = store.ListMembers(f.ctx, members.Filter{Status: members.StatusExpired, Today: time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC)}); len(expired) != 0 {
 		t.Errorf("expired list far in the past should be empty, got %d", len(expired))
 	}
-	if def, _ := store.ListMembers(f.ctx, members.Filter{Today: time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)}); len(def) != len(cur)-withExpiry {
-		t.Errorf("current list far in the future should hold only members without an expiry date: %d vs %d", len(def), len(cur)-withExpiry)
+	if ne, _ := store.ListMembers(f.ctx, members.Filter{Status: members.StatusNotExpired, Today: time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)}); len(ne) != len(cur)-withExpiry {
+		t.Errorf("not-expired list far in the future should hold only members without an expiry date: %d vs %d", len(ne), len(cur)-withExpiry)
 	}
 	found, _ := store.ListMembers(f.ctx, members.Filter{Query: "odd 100%", Status: members.StatusAll})
 	if len(found) != 0 {

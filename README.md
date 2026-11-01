@@ -729,7 +729,7 @@ All variables are described under [Configuration](#configuration).
 
 Replicated:
 
-- The "current" list (the default) shows non-archived members whose Clidive expiry is empty or today or later, including the Lapsed type. "Clidive expired" lists the rest; "Current and expired" is everyone not archived (the payments page uses it, since renewals are recorded there).
+- The "current" list (the default) shows every non-archived member except the Social and Honorary types, including the Lapsed type and members whose Clidive expiry has passed (flagged in red: the expiry date is not kept up to date for standing-order payers). Choosing a type in the filter overrides the Social/Honorary exclusion. "Current, including Social and Honorary" is everyone not archived (the payments page uses it, since renewals are recorded there); "Clidive not expired" and "Clidive expired" split the non-archived members on the expiry date.
   "All" also includes archived members. Columns are sortable, default sort is
   last name.
 - Archive is a soft delete. Archived members drop off mailing lists and stay

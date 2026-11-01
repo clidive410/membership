@@ -54,6 +54,10 @@ func (f *fakeMembers) ListTypes(context.Context) ([]members.MembershipType, erro
 	return fakeTypes, nil
 }
 
+func socialOrHonorary(m *members.Member) bool {
+	return m.TypeID.Int64 == members.TypeSocial || m.TypeID.Int64 == members.TypeHonorary
+}
+
 func (f *fakeMembers) ListMembers(_ context.Context, flt members.Filter) ([]members.Member, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -66,7 +70,11 @@ func (f *fakeMembers) ListMembers(_ context.Context, flt members.Filter) ([]memb
 			}
 		case members.StatusAll:
 		case members.StatusNotLapsed:
-			if m.Archived() || m.Expired(flt.Today) || m.TypeID.Int64 == members.TypeLapsed {
+			if m.Archived() || m.TypeID.Int64 == members.TypeLapsed || (flt.TypeID == 0 && socialOrHonorary(m)) {
+				continue
+			}
+		case members.StatusNotExpired:
+			if m.Archived() || m.Expired(flt.Today) {
 				continue
 			}
 		case members.StatusExpired:
@@ -78,7 +86,7 @@ func (f *fakeMembers) ListMembers(_ context.Context, flt members.Filter) ([]memb
 				continue
 			}
 		default:
-			if m.Archived() || m.Expired(flt.Today) {
+			if m.Archived() || (flt.TypeID == 0 && socialOrHonorary(m)) {
 				continue
 			}
 		}

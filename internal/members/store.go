@@ -21,15 +21,19 @@ func NewStore(db *sql.DB) *Store { return &Store{DB: db} }
 // Status filters the member list.
 type Status string
 
-// Member list statuses. "current" is the default list: non-archived members
-// whose Clidive membership has not expired (including the Lapsed type, as in
-// the legacy list). "notarchived" is the legacy default, current and expired
-// together; the payments page uses it because renewals are recorded there.
+// Member list statuses. "current" is the default list: everyone not
+// archived except the Social and Honorary types, so the list shows the
+// people who dive with the club. Expired Clidive memberships stay in it
+// (flagged in red) because the expiry date is not kept up to date for
+// members paying by standing order; the Lapsed type stays in it as in the
+// legacy list. "notarchived" is the legacy default, everyone not archived;
+// the payments page uses it because renewals are recorded there.
 const (
-	StatusCurrent     Status = "current"
-	StatusNotLapsed   Status = "notlapsed"   // current, excluding the Lapsed type
+	StatusCurrent     Status = "current"     // not archived, excluding Social and Honorary (unless a type is chosen)
+	StatusNotLapsed   Status = "notlapsed"   // current, excluding the Lapsed type too
+	StatusNotExpired  Status = "notexpired"  // not archived, Clidive expiry empty or today or later
 	StatusExpired     Status = "expired"     // not archived, Clidive expiry before today (see Member.Expired)
-	StatusNotArchived Status = "notarchived" // current and expired
+	StatusNotArchived Status = "notarchived" // everyone not archived, Social and Honorary included
 	StatusArchived    Status = "archived"
 	StatusAll         Status = "all"
 )
@@ -37,7 +41,7 @@ const (
 // ParseStatus returns a valid Status, defaulting to StatusCurrent.
 func ParseStatus(s string) Status {
 	switch Status(s) {
-	case StatusNotLapsed, StatusExpired, StatusNotArchived, StatusArchived, StatusAll:
+	case StatusNotLapsed, StatusNotExpired, StatusExpired, StatusNotArchived, StatusArchived, StatusAll:
 		return Status(s)
 	}
 	return StatusCurrent
@@ -130,9 +134,17 @@ func (s *Store) ListMembers(ctx context.Context, f Filter) ([]Member, error) {
 		today = time.Now()
 	}
 	const notExpired = "(m.membership_expiry IS NULL OR m.membership_expiry >= ?)"
+	// The default list leaves Social and Honorary members out. A chosen type
+	// overrides that, so filtering the list by Social still works.
+	notSocial := "1=1"
+	if f.TypeID == 0 {
+		notSocial = fmt.Sprintf("(m.membership_type_id IS NULL OR m.membership_type_id NOT IN (%d, %d))", TypeSocial, TypeHonorary)
+	}
 	switch f.Status {
 	case StatusNotLapsed:
-		where = append(where, "m.deleted_at IS NULL", notExpired, fmt.Sprintf("(m.membership_type_id IS NULL OR m.membership_type_id <> %d)", TypeLapsed))
+		where = append(where, "m.deleted_at IS NULL", notSocial, fmt.Sprintf("(m.membership_type_id IS NULL OR m.membership_type_id <> %d)", TypeLapsed))
+	case StatusNotExpired:
+		where = append(where, "m.deleted_at IS NULL", notExpired)
 		args = append(args, today.Format("2006-01-02"))
 	case StatusExpired:
 		where = append(where, "m.deleted_at IS NULL", "m.membership_expiry < ?")
@@ -143,8 +155,7 @@ func (s *Store) ListMembers(ctx context.Context, f Filter) ([]Member, error) {
 		where = append(where, "m.deleted_at IS NOT NULL")
 	case StatusAll:
 	default:
-		where = append(where, "m.deleted_at IS NULL", notExpired)
-		args = append(args, today.Format("2006-01-02"))
+		where = append(where, "m.deleted_at IS NULL", notSocial)
 	}
 	switch {
 	case f.TypeID > 0:
