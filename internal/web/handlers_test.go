@@ -484,6 +484,9 @@ func TestBasePathAndHeaders(t *testing.T) {
 	if !strings.Contains(w.Header().Get("Content-Security-Policy"), "default-src 'none'") || w.Header().Get("X-Frame-Options") != "DENY" {
 		t.Error("security headers missing")
 	}
+	if !strings.Contains(w.Header().Get("Content-Security-Policy"), "font-src 'self'") {
+		t.Error("CSP must allow the heading font in style.css")
+	}
 	if w := e.do(t, "GET", "/membership/static/style.css", "", nil); w.Code != 200 || !strings.Contains(w.Header().Get("Content-Type"), "text/css") {
 		t.Errorf("static css: %d %q", w.Code, w.Header().Get("Content-Type"))
 	}

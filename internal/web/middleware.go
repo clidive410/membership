@@ -307,8 +307,9 @@ func (s *Server) requirePermission(perms map[*mux.Route]auth.Permission) mux.Mid
 }
 
 // contentSecurityPolicy is sent with every response. img-src data: is for
-// the small SVGs Tabler's CSS embeds (select arrows, checkbox ticks).
-const contentSecurityPolicy = "default-src 'none'; style-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+// the small SVGs Tabler's CSS embeds (select arrows, checkbox ticks). font-src
+// is for the heading font style.css loads from /static.
+const contentSecurityPolicy = "default-src 'none'; style-src 'self'; img-src 'self' data:; font-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
 
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
