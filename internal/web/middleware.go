@@ -206,10 +206,12 @@ func (s *Server) checkCSRF(next http.Handler) http.Handler {
 		}
 		if !valid {
 			s.opt.Log.Warn("csrf check failed", "path", r.URL.Path)
-			// Most likely a stale cookie from an earlier cookie scope: drop every
+			// A browser that submitted a token nobody recognises most likely
+			// carries a stale cookie from an earlier cookie scope: drop every
 			// variant so the next page load starts clean, then reload the form.
-			s.clearCookieVariants(w, r, csrfCookie)
-			if r.Header.Get("Sec-Fetch-Mode") == "navigate" || r.Header.Get("Accept") != "" && strings.Contains(r.Header.Get("Accept"), "text/html") {
+			// Requests without a token (scripts, probes) just get the 403.
+			if token != "" && (r.Header.Get("Sec-Fetch-Mode") == "navigate" || strings.Contains(r.Header.Get("Accept"), "text/html")) {
+				s.clearCookieVariants(w, r, csrfCookie)
 				http.Redirect(w, r, r.URL.RequestURI(), http.StatusSeeOther)
 				return
 			}
