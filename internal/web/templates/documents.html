@@ -8,7 +8,7 @@
 {{define "doclink"}}<a href="{{url "/documents"}}?cat={{.C.Slug}}"{{if .Current}} aria-current="page"{{end}}>{{.C.Name}}</a>{{end}}
 
 {{define "content"}}{{$d := .Data}}
-<div class="{{if not .P}}container-xl py-4 w-100{{end}}">
+<div class="{{if not .P}}container-xl py-4 w-100 flex-fill{{end}}">
 {{if not .Shell}}<div class="mb-3">
   {{template "pretitle" .}}
   <h1 class="page-title">{{template "heading" .}}</h1>
