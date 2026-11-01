@@ -2,10 +2,12 @@
    Keep this file small: prefer Tabler classes in the templates.
 
    Brand, taken from clidive.org: a black header, the logo's yellow (#fff200)
-   with black type, Open Sans Condensed Bold for headings and nav, link blue
+   with black type, Open Sans Condensed Bold for headings, link blue
    #0066cc and a light grey page background. Yellow is an accent (wordmark,
-   active nav item, primary buttons, focus ring); near-black is the working
-   "primary" so that checkboxes, pagination and tabs keep their contrast. */
+   active nav icon, primary buttons, focus ring); near-black is the working
+   "primary" so that checkboxes, pagination and tabs keep their contrast.
+   Menus (sidebar, members' bar) use the plain body face in sentence case so
+   the yellow wordmark stays the only loud thing in the chrome. */
 
 @font-face {
   font-family: "Open Sans Condensed";
@@ -51,15 +53,30 @@
 .wordmark-lg .wordmark-bsac { font-size: .95rem; }
 .brand-sub { display: block; padding: 0 1rem .75rem; font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; color: rgba(255,255,255,.55); }
 
-.sidebar .navbar-nav .nav-link {
-  font-family: var(--clidive-condensed); font-weight: 700; font-size: 1.05rem; letter-spacing: .04em; text-transform: uppercase;
-  color: rgba(255,255,255,.78); border-inline-start: 3px solid transparent;
+/* Menu links (sidebar and members' bar): quiet rounded rows; the current
+   page gets a soft white fill, white semibold text and a yellow icon.
+   Grey text on black is ~10:1, so it stays well above AA. */
+.sidebar .navbar-nav { gap: 2px; padding-block: .25rem; }
+.sidebar .navbar-nav .nav-link, .member-bar .navbar-nav .nav-link {
+  --tblr-nav-link-icon-color: currentColor;
+  font-size: .875rem; font-weight: 500; line-height: 1.3; letter-spacing: 0; text-transform: none;
+  color: rgba(255,255,255,.72); padding: .5rem .75rem; border-radius: 6px; border: 0;
+  transition: background-color .12s, color .12s;
 }
-.sidebar .navbar-nav .nav-link:hover { color: #fff; background: rgba(255,255,255,.06); }
-.sidebar .navbar-nav .nav-item.active > .nav-link {
-  color: var(--clidive-yellow); border-inline-start-color: var(--clidive-yellow); background: rgba(255,255,255,.08);
+.sidebar .navbar-nav .nav-link-title { white-space: normal; overflow: visible; } /* wrap, never "Manage docu…" */
+.sidebar .nav-link-icon, .member-bar .nav-link-icon { color: inherit; opacity: .75; }
+.sidebar .nav-link-icon .icon, .member-bar .nav-link-icon .icon { width: 1.125rem; height: 1.125rem; stroke-width: 1.75; }
+.sidebar .navbar-nav .nav-link:hover, .member-bar .navbar-nav .nav-link:hover { color: #fff; background: rgba(255,255,255,.06); }
+.sidebar .navbar-nav .nav-item.active > .nav-link, .member-bar .navbar-nav .nav-item.active > .nav-link {
+  color: #fff; font-weight: 600; background: rgba(255,255,255,.11);
 }
-.sidebar .nav-link-icon { color: inherit; }
+.sidebar .nav-item.active > .nav-link .nav-link-icon, .member-bar .nav-item.active > .nav-link .nav-link-icon { color: var(--clidive-yellow); opacity: 1; }
+.sidebar .nav-item.active::after, .member-bar .nav-item.active::after { content: none; }
+/* Inset ring so it is never clipped by the sidebar's scroll container. */
+.sidebar .navbar-nav .nav-link:focus-visible, .member-bar .navbar-nav .nav-link:focus-visible {
+  outline: 2px solid var(--clidive-yellow); outline-offset: -2px; box-shadow: none; color: #fff;
+}
+@media (prefers-reduced-motion: reduce) { .sidebar .nav-link, .member-bar .nav-link { transition: none; } }
 
 .sidebar-search { padding: .75rem 1rem 0; }
 .sidebar-search .form-control {
@@ -84,8 +101,8 @@
   .brand-sub { display: none; }
   .sidebar .navbar-collapse { flex-basis: 100%; }
   .sidebar .navbar-nav { flex-direction: row; flex-wrap: wrap; gap: .25rem; padding: 0 .5rem .5rem; }
-  .sidebar .navbar-nav .nav-link { padding: .4rem .6rem; border-inline-start: 0; border-bottom: 3px solid transparent; }
-  .sidebar .navbar-nav .nav-item.active > .nav-link { border-bottom-color: var(--clidive-yellow); background: none; }
+  .sidebar .navbar-nav .nav-link { padding: .4rem .65rem; }
+  .sidebar .navbar-nav .nav-link-title { white-space: nowrap; }
   .sidebar-search { padding: 0 1rem .5rem; }
   .sidebar-user { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; margin-top: 0; }
   .sidebar-user form { padding: .5rem 1rem !important; }
@@ -197,13 +214,7 @@ fieldset[disabled] .card-body { background: var(--tblr-bg-surface-secondary, #f9
 /* Members' top bar (no sidebar): wordmark, "My membership", sign out. */
 .member-bar { background: var(--clidive-black); padding: .5rem 0; }
 .member-bar .container-xl { max-width: 96rem; display: flex; flex-wrap: wrap; align-items: center; gap: .75rem 1.5rem; }
-.member-bar .navbar-nav .nav-link {
-  font-family: var(--clidive-condensed); font-weight: 700; font-size: 1.05rem; letter-spacing: .04em; text-transform: uppercase;
-  color: rgba(255,255,255,.78); border-bottom: 3px solid transparent; padding: .4rem .6rem;
-}
-.member-bar .navbar-nav .nav-link:hover { color: #fff; }
-.member-bar .navbar-nav .nav-item.active > .nav-link { color: var(--clidive-yellow); border-bottom-color: var(--clidive-yellow); }
-.member-bar .nav-link-icon { color: inherit; }
+.member-bar .navbar-nav { gap: .25rem; min-height: 0; } /* link styles: see "Menu links" above */
 .member-bar .btn { --tblr-btn-color: rgba(255,255,255,.85); --tblr-btn-border-color: rgba(255,255,255,.25); --tblr-btn-hover-color: #fff; --tblr-btn-hover-bg: rgba(255,255,255,.1); --tblr-btn-hover-border-color: rgba(255,255,255,.4); }
 .member-bar .btn .icon { margin-inline-end: .25rem; }
 .me-header { padding-top: 1rem; }
