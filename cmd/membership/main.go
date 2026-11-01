@@ -4,6 +4,7 @@
 //	membership migrate                 apply database migrations
 //	membership migrate-legacy          import from the legacy PHP database
 //	membership user <subcommand>       manage login users and roles
+//	membership oidc <subcommand>       OpenID Connect clients and signing keys
 //	membership healthcheck             probe /healthz (Docker HEALTHCHECK)
 //	membership seed-dev                fill an empty scratch database with invented members
 package main
@@ -28,6 +29,7 @@ import (
 	"github.com/clidive410/membership/internal/config"
 	"github.com/clidive410/membership/internal/db"
 	"github.com/clidive410/membership/internal/devseed"
+	"github.com/clidive410/membership/internal/idp"
 	"github.com/clidive410/membership/internal/legacy"
 	"github.com/clidive410/membership/internal/mail"
 	"github.com/clidive410/membership/internal/members"
@@ -53,6 +55,7 @@ Commands:
   migrate          Apply database migrations and exit
   migrate-legacy   Import members from the legacy database (-legacy-dsn, -dry-run)
   user             Manage users: invite, set-password, grant, revoke, link, disable, enable, list
+  oidc             OpenID Connect provider: client create|list|rotate-secret|disable|ensure, rotate-keys
   healthcheck      Exit 0 if the local server's /healthz answers 200 (HEALTHCHECK_URL overrides)
   seed-dev         Insert invented members into an EMPTY database (-n 40, -seed 1)
   version          Print the version
@@ -75,6 +78,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return migrateLegacy(ctx, args, stdout)
 	case "user":
 		return userCmd(ctx, args, stdin, stdout)
+	case "oidc":
+		return oidcCmd(ctx, args, stdout)
 	case "healthcheck":
 		return healthcheck(ctx, os.Getenv)
 	case "seed-dev":
@@ -162,6 +167,18 @@ func serve(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	issuer, err := cfg.OIDCIssuer(os.Getenv)
+	if err != nil {
+		log.Warn("oidc: issuer", "err", err)
+	}
+	provider, err := idp.New(idp.Config{DB: conn, Auth: authStore, SessionSecret: cfg.SessionSecret, Issuer: issuer,
+		BasePath: cfg.BasePath(), Log: log})
+	if err != nil {
+		return err
+	}
+	// Registers the WordPress client when OIDC_WORDPRESS_CLIENT_ID is set;
+	// logs and carries on if that fails.
+	ensureWordPressClient(ctx, provider.Clients(), os.Getenv, log)
 
 	srv := web.New(web.Options{
 		Members:          memberStore,
@@ -177,6 +194,7 @@ func serve(ctx context.Context, args []string) error {
 		LoginReturnURL:   cfg.LoginReturnURL,
 		Mailer:           mailer,
 		TrustedProxies:   cfg.TrustedProxies,
+		OIDC:             provider,
 	})
 	httpSrv := &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -188,13 +206,17 @@ func serve(ctx context.Context, args []string) error {
 		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
 	}
 
-	// Housekeeping: purge expired sessions and login tokens hourly.
+	// Housekeeping: purge expired sessions, login tokens and OIDC codes
+	// and tokens hourly.
 	go func() {
 		t := time.NewTicker(time.Hour)
 		defer t.Stop()
 		for {
 			if err := authStore.PurgeExpired(ctx); err != nil && ctx.Err() == nil {
 				log.Warn("purging expired sessions", "err", err)
+			}
+			if err := provider.Purge(ctx); err != nil && ctx.Err() == nil {
+				log.Warn("purging expired OIDC codes and tokens", "err", err)
 			}
 			select {
 			case <-ctx.Done():

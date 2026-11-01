@@ -62,6 +62,64 @@ func (c *Config) BasePath() string {
 	return strings.TrimRight(c.BaseURL.Path, "/")
 }
 
+// OIDCClient is a relying party registered at start-up by `serve` and
+// `membership oidc client ensure` (the WordPress site).
+type OIDCClient struct {
+	ID          string // OIDC_WORDPRESS_CLIENT_ID
+	Secret      string // OIDC_WORDPRESS_CLIENT_SECRET (or _FILE); never log it
+	RedirectURI string // OIDC_WORDPRESS_REDIRECT_URI
+	// PostLogoutRedirectURI is OIDC_WORDPRESS_POST_LOGOUT_URI (optional;
+	// default: the origin of RedirectURI followed by "/").
+	PostLogoutRedirectURI string
+}
+
+// LoadOIDCClient reads the WordPress client registration. It returns
+// (nil, nil) when OIDC_WORDPRESS_CLIENT_ID is not set. Errors never fail
+// the server: the caller logs them.
+func LoadOIDCClient(getenv Getenv) (*OIDCClient, error) {
+	id, err := lookup(getenv, "OIDC_WORDPRESS_CLIENT_ID")
+	if err != nil || id == "" {
+		return nil, err
+	}
+	c := &OIDCClient{ID: id}
+	var errs []error
+	for _, f := range []struct {
+		name string
+		dst  *string
+	}{{"OIDC_WORDPRESS_CLIENT_SECRET", &c.Secret}, {"OIDC_WORDPRESS_REDIRECT_URI", &c.RedirectURI}, {"OIDC_WORDPRESS_POST_LOGOUT_URI", &c.PostLogoutRedirectURI}} {
+		v, err := lookup(getenv, f.name)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		*f.dst = v
+	}
+	if c.Secret == "" {
+		errs = append(errs, errors.New("OIDC_WORDPRESS_CLIENT_SECRET (or _FILE) is required with OIDC_WORDPRESS_CLIENT_ID"))
+	}
+	if c.RedirectURI == "" {
+		errs = append(errs, errors.New("OIDC_WORDPRESS_REDIRECT_URI is required with OIDC_WORDPRESS_CLIENT_ID"))
+	}
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
+	}
+	return c, nil
+}
+
+// OIDCIssuer returns the OpenID Connect issuer: BASE_URL without a trailing
+// slash. OIDC_ISSUER, if set, must name the same URL; a different value is
+// reported (and ignored) so that a typo cannot take the portal down.
+func (c *Config) OIDCIssuer(getenv Getenv) (string, error) {
+	issuer := strings.TrimRight(c.BaseURL.String(), "/")
+	v, err := lookup(getenv, "OIDC_ISSUER")
+	if err != nil {
+		return issuer, err
+	}
+	if v != "" && strings.TrimRight(v, "/") != issuer {
+		return issuer, fmt.Errorf("OIDC_ISSUER %q differs from BASE_URL %q; the issuer is BASE_URL", v, issuer)
+	}
+	return issuer, nil
+}
+
 // Getenv is the lookup function used by Load; tests may replace it.
 type Getenv func(string) string
 
@@ -91,6 +149,19 @@ func LoadDB(getenv Getenv) (string, error) {
 		return "", errors.New("DB_DSN is required")
 	}
 	return dsn, nil
+}
+
+// LoadSessionSecret reads only SESSION_SECRET (for CLI subcommands that
+// handle OIDC signing keys, which are sealed with a key derived from it).
+func LoadSessionSecret(getenv Getenv) ([]byte, error) {
+	v, err := lookup(getenv, "SESSION_SECRET")
+	if err != nil {
+		return nil, err
+	}
+	if len(v) < 32 {
+		return nil, errors.New("SESSION_SECRET is required and must be at least 32 characters")
+	}
+	return []byte(v), nil
 }
 
 // Load reads and validates the full configuration.
