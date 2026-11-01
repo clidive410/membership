@@ -16,7 +16,7 @@
         <div class="mb-3"><label class="form-label" for="d-desc">Description</label>
           <input class="form-control" id="d-desc" name="description" maxlength="2000" value="{{$x.Description}}"></div>
         <div class="row">
-          <div class="col-md-6 mb-3"><label class="form-label" for="d-cat">Category</label>
+          <div class="col-md-6 mb-3"><label class="form-label" for="d-cat">Folder</label>
             <select class="form-select" id="d-cat" name="category"><option value="">(top level)</option>
             {{range $d.Categories}}<option value="{{.ID}}"{{if and $x.CategoryID.Valid (eq .ID $x.CategoryID.Int64)}} selected{{end}}>{{.Label}}{{if .Archived}} (archived){{end}}</option>{{end}}</select></div>
           <div class="col-md-6 mb-3"><label class="form-label" for="d-access">Who can see it</label>

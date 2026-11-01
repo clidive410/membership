@@ -210,7 +210,7 @@ func (s *Server) handleDocuments(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if d.Current == nil {
-			s.renderError(w, r, http.StatusNotFound, "No such category.")
+			s.renderError(w, r, http.StatusNotFound, "No such folder.")
 			return
 		}
 		d.Path = lib.Path(current)
@@ -434,12 +434,12 @@ func parseCategoryForm(r *http.Request, lib *documents.Library, id int64) (*docu
 		return c, "The description is limited to 2000 characters."
 	}
 	if c.ParentID, ok = parseCategoryRef(lib, r.PostForm.Get("parent")); !ok {
-		return c, "Choose a parent category."
+		return c, "Choose a parent folder."
 	}
 	if id != 0 && c.ParentID.Valid {
 		for _, a := range lib.Path(c.ParentID.Int64) {
 			if a.ID == id {
-				return c, "A category cannot be moved under itself or one of its subcategories."
+				return c, "A folder cannot be moved under itself or one of its subfolders."
 			}
 		}
 	}
@@ -451,7 +451,7 @@ func parseCategoryForm(r *http.Request, lib *documents.Library, id int64) (*docu
 		c.SortOrder = n
 	}
 	if c.Access, ok = documents.ParseAccess(r.PostForm.Get("access"), false); !ok {
-		return c, "Choose who can see the category."
+		return c, "Choose who can see the folder."
 	}
 	return c, ""
 }
@@ -493,7 +493,7 @@ func (s *Server) loadCategory(w http.ResponseWriter, r *http.Request) (*document
 	id, _ := pathID(r, "id")
 	c := lib.Category(id)
 	if c == nil {
-		s.renderError(w, r, http.StatusNotFound, "No such category.")
+		s.renderError(w, r, http.StatusNotFound, "No such folder.")
 		return nil, nil, false
 	}
 	return lib, c, true
@@ -510,7 +510,7 @@ func (s *Server) categoryPage(w http.ResponseWriter, r *http.Request, status int
 			parents = append(parents, o)
 		}
 	}
-	s.render(w, r, status, "doccategory", "Category: "+c.Name, categoryEditData{C: c, Parents: parents,
+	s.render(w, r, status, "doccategory", "Folder: "+c.Name, categoryEditData{C: c, Parents: parents,
 		Levels: documents.Levels, Error: msg, Effective: lib.CategoryAccess(c.ID), Archived: lib.CategoryArchived(c.ID)})
 }
 
@@ -605,7 +605,7 @@ func parseDocumentForm(r *http.Request, lib *documents.Library, d *documents.Doc
 		return "The description is limited to 2000 characters."
 	}
 	if d.CategoryID, ok = parseCategoryRef(lib, r.PostForm.Get("category")); !ok {
-		return "Choose a category."
+		return "Choose a folder."
 	}
 	access := r.PostForm.Get("access")
 	if access == "" {

@@ -1,5 +1,5 @@
-{{define "actions"}}{{with .Data.CatID}}<a class="btn btn-outline-secondary" href="{{url "/admin/documents/categories/"}}{{.}}">Edit category</a>{{end}}{{end}}
-{{define "subtitle"}}<div class="page-subtitle">Categories, uploads and who can see what. <a href="{{url "/documents"}}">View the library</a></div>{{end}}
+{{define "actions"}}{{with .Data.CatID}}<a class="btn btn-outline-secondary" href="{{url "/admin/documents/categories/"}}{{.}}">Edit folder</a>{{end}}{{end}}
+{{define "subtitle"}}<div class="page-subtitle">Folders, uploads and who can see what. <a href="{{url "/documents"}}">View the library</a></div>{{end}}
 
 {{/* accesssel: Name, ID, Levels, Value */}}
 {{define "accesssel"}}<select class="form-select" id="{{.ID}}" name="{{.Name}}">{{$v := .Value}}{{range .Levels}}<option value="{{.}}"{{if eq (print .) $v}} selected{{end}}>{{docAccess .}}</option>{{end}}</select>{{end}}
@@ -15,19 +15,19 @@
       <div class="card-body border-bottom">
         <form method="get" action="{{url "/admin/documents"}}" role="search" class="row g-2">
           <div class="col-md-5"><label class="visually-hidden" for="f-q">Search</label><input id="f-q" class="form-control" type="search" name="q" value="{{$d.Query}}" placeholder="Search"></div>
-          <div class="col-md-4"><label class="visually-hidden" for="f-cat">Category</label><select id="f-cat" class="form-select" name="cat">
-            <option value="">All categories</option><option value="none"{{if eq $d.Cat "none"}} selected{{end}}>(top level)</option>
+          <div class="col-md-4"><label class="visually-hidden" for="f-cat">Folder</label><select id="f-cat" class="form-select" name="cat">
+            <option value="">All folders</option><option value="none"{{if eq $d.Cat "none"}} selected{{end}}>(top level)</option>
             {{range $d.Categories}}<option value="{{.ID}}"{{if eq (itoa .ID) $d.Cat}} selected{{end}}>{{.Label}}</option>{{end}}</select></div>
           <div class="col-md-2"><label class="form-check mt-2"><input class="form-check-input" type="checkbox" name="show" value="archived"{{if $d.Archived}} checked{{end}}><span class="form-check-label">Archived</span></label></div>
           <div class="col-md-1"><button class="btn w-100" type="submit">Filter</button></div>
         </form>
       </div>
       {{if $d.Docs}}<div class="table-responsive"><table class="table table-vcenter card-table table-sm">
-        <thead><tr><th scope="col">Title</th><th scope="col">Category</th><th scope="col">Who can see it</th><th scope="col" class="text-end">Size</th><th scope="col" class="text-end">Date</th><th scope="col" class="text-end">Downloads</th></tr></thead>
+        <thead><tr><th scope="col">Title</th><th scope="col">Folder</th><th scope="col">Who can see it</th><th scope="col" class="text-end">Size</th><th scope="col" class="text-end">Date</th><th scope="col" class="text-end">Downloads</th></tr></thead>
         <tbody>{{range $d.Docs}}<tr>
           <td><a href="{{url "/admin/documents/"}}{{.D.ID}}">{{.D.Title}}</a>{{if not .D.SHA256}} <span class="badge bg-red-lt">file missing</span>{{end}}</td>
           <td class="small">{{or .Category "(top level)"}}</td>
-          <td class="small">{{docAccess .Access}}{{if eq (print .D.Access) "inherit"}} <span class="text-secondary">(from category)</span>{{end}}</td>
+          <td class="small">{{docAccess .Access}}{{if eq (print .D.Access) "inherit"}} <span class="text-secondary">(from folder)</span>{{end}}</td>
           <td class="num text-end text-nowrap">{{bytes .D.SizeBytes}}</td>
           <td class="num text-end text-nowrap">{{.D.UploadedAt.Format "02/01/2006"}}</td>
           <td class="num text-end">{{.D.Downloads}}</td>
@@ -50,7 +50,7 @@
         <div class="mb-3"><label class="form-label" for="up-desc">Description</label>
           <input class="form-control" id="up-desc" name="description" maxlength="2000" value="{{$d.Form.Get "description"}}"></div>
         <div class="row">
-          <div class="col-md-6 mb-3"><label class="form-label" for="up-cat">Category</label>{{template "catsel" (dict "Name" "category" "ID" "up-cat" "Cats" $d.Categories "Value" (or ($d.Form.Get "category") $d.Cat) "Top" "(top level)")}}</div>
+          <div class="col-md-6 mb-3"><label class="form-label" for="up-cat">Folder</label>{{template "catsel" (dict "Name" "category" "ID" "up-cat" "Cats" $d.Categories "Value" (or ($d.Form.Get "category") $d.Cat) "Top" "(top level)")}}</div>
           <div class="col-md-6 mb-3"><label class="form-label" for="up-access">Who can see it</label>{{template "accesssel" (dict "Name" "access" "ID" "up-access" "Levels" $d.Levels "Value" (or ($d.Form.Get "access") "inherit"))}}</div>
         </div>
         <button type="submit" class="btn btn-primary">{{icon "plus"}} Upload</button>
@@ -59,7 +59,7 @@
   </div>
   <div class="col-lg-6">
     <section class="card h-100" aria-labelledby="nc-h">
-      <div class="card-header"><h2 class="card-title" id="nc-h">New category</h2></div>
+      <div class="card-header"><h2 class="card-title" id="nc-h">New folder</h2></div>
       <form class="card-body" method="post" action="{{url "/admin/documents/categories"}}">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
         <div class="mb-3"><label class="form-label required" for="nc-name">Name</label>
@@ -72,7 +72,7 @@
           <div class="col-md-3 mb-3"><label class="form-label" for="nc-order">Order</label>
             <input class="form-control" id="nc-order" name="sort_order" inputmode="numeric" value="0"></div>
         </div>
-        <button type="submit" class="btn btn-primary">{{icon "plus"}} Create category</button>
+        <button type="submit" class="btn btn-primary">{{icon "plus"}} Create folder</button>
       </form>
     </section>
   </div>
@@ -80,7 +80,7 @@
   <div class="col-12">
     <section class="card" aria-labelledby="cats-h">
       <details{{if not $d.Cat}} open{{end}}>
-      <summary class="card-header"><h2 class="card-title" id="cats-h">Categories</h2><span class="card-actions text-secondary small">{{len $d.Categories}}</span></summary>
+      <summary class="card-header"><h2 class="card-title" id="cats-h">Folders</h2><span class="card-actions text-secondary small">{{len $d.Categories}}</span></summary>
       {{if $d.Categories}}<div class="table-responsive"><table class="table table-vcenter card-table table-sm">
         <thead><tr><th scope="col">Name</th><th scope="col">Who can see it</th><th scope="col" class="text-end">Order</th><th scope="col" class="text-end">Documents</th></tr></thead>
         <tbody>{{range $d.Categories}}<tr>
@@ -89,7 +89,7 @@
           <td class="num text-end">{{.C.SortOrder}}</td>
           <td class="num text-end"><a href="{{url "/admin/documents"}}?cat={{.ID}}">{{.Docs}}</a></td>
         </tr>{{end}}</tbody>
-      </table></div>{{else}}<div class="card-body text-secondary">No categories yet.</div>{{end}}
+      </table></div>{{else}}<div class="card-body text-secondary">No folders yet.</div>{{end}}
       </details>
     </section>
   </div>

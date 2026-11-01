@@ -21,7 +21,7 @@ import (
 // docAccessLabels names the document access levels in the UI.
 var docAccessLabels = map[documents.Access]string{
 	documents.Public: "Everyone (public)", documents.Members: "Members (signed in)",
-	documents.Committee: "Committee only", documents.Inherit: "Same as category",
+	documents.Committee: "Committee only", documents.Inherit: "Same as folder",
 }
 
 // formatBytes renders a file size: 512 B, 3.4 kB, 12.0 MB.
@@ -236,10 +236,10 @@ var flashes = map[string]string{
 	"access-saved":    "Portal access updated.",
 	"access-revoked":  "Portal access removed: the login is disabled and signed out everywhere.",
 	"invite-sent":     "Invitation emailed: it carries a link to set a password, valid for 7 days.",
-	"cat-created":     "Category created.",
-	"cat-saved":       "Category saved.",
-	"cat-archived":    "Category archived: it and everything in it are hidden from the library.",
-	"cat-restored":    "Category restored.",
+	"cat-created":     "Folder created.",
+	"cat-saved":       "Folder saved.",
+	"cat-archived":    "Folder archived: it and everything in it are hidden from the library.",
+	"cat-restored":    "Folder restored.",
 	"doc-uploaded":    "Document uploaded.",
 	"doc-saved":       "Document saved.",
 	"doc-replaced":    "File replaced.",

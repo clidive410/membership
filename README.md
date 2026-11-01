@@ -24,7 +24,7 @@ Infrastructure lives in [`clidive410/infra`](https://github.com/clidive410/infra
   whether the visitor is a signed-in club member, and whether their
   membership has expired.
 - Document library at `/documents` (public, members and committee
-  documents in a category tree), managed at `/admin/documents`; replaces the
+  documents in a folder tree), managed at `/admin/documents`; replaces the
   old WordPress WP-Filebase library (see [Documents](#documents)).
 - `migrate-legacy` imports the legacy `membership` tables idempotently.
 - `seed-dev` fills an empty scratch database with invented members for UI work.
@@ -277,24 +277,24 @@ membership migrate-legacy -legacy-dsn 'user:pw@tcp(legacy-host:3306)/ironmonger'
 ## Documents
 
 The document library replaces the WP-Filebase plugin of the old WordPress
-site. Categories form a tree; each document has a title, description, file
+site. Folders (`document_categories` in the code and database) form a tree; each document has a title, description, file
 (original name, size, SHA-256), uploader, date and download count.
 
 | Route | Who | What |
 |-------|-----|------|
-| `GET /documents` | everyone | Category tree (collapsible), subcategories, documents with size and date, search over titles and descriptions (`?q=`), one category with `?cat=<slug>`. Each item is shown or not by its access. |
+| `GET /documents` | everyone | Folder tree (collapsible), subfolders, documents with size and date, search over titles and descriptions (`?q=`), one folder with `?cat=<slug>`. Each item is shown or not by its access. |
 | `GET /documents/{id}/download` | per document | The file as an attachment. A visitor asking for a members or committee document is sent to sign in; anything else they may not see is 404. |
-| `/admin/documents` | `documents.manage` | Upload; create, edit (name, description, parent, order, access) and archive/restore categories; edit (title, description, category, access), replace the file of, and archive/restore documents; filters and archived view. |
+| `/admin/documents` | `documents.manage` | Upload; create, edit (name, description, parent, order, access) and archive/restore folders; edit (title, description, folder, access), replace the file of, and archive/restore documents; filters and archived view. |
 
 **Access levels.** `public` (no sign-in), `members` (any signed-in user:
 members, expired members too, with a renewal note, and website editors) and
-`committee` (roles `admin` and `membership_manager`). A category is never
+`committee` (roles `admin` and `membership_manager`). A folder is never
 more open than its parent (the most restrictive level on the way up
-applies). A document is `inherit` (its category's level, the default) or has
-its own level, which may be more open than the category: a public document
-in a committee category is listed to visitors under that category. A
+applies). A document is `inherit` (its folder's level, the default) or has
+its own level, which may be more open than the folder: a public document
+in a committee folder is listed to visitors under that folder. A
 top-level document that inherits, an unknown level or a broken parent chain
-counts as committee. Archiving a category hides it, its subcategories and
+counts as committee. Archiving a folder hides it, its subfolders and
 their documents; archived items are never downloadable, even by the
 committee (restore first). Permissions: `documents.view` (all roles) and
 `documents.manage` (`admin`, `membership_manager`).
@@ -310,7 +310,7 @@ handler timeout (they get 15 minutes); uploads beyond 8 MB are buffered in a
 temporary file under `os.TempDir()` until the request ends, so `/tmp` must
 be writable. Replacing a file deletes the old one; archiving keeps it.
 
-**Audit.** Every category and document change (`doccat.*`, `document.*`,
+**Audit.** Every folder and document change (`doccat.*`, `document.*`,
 with the changed fields) and every download (`document.download`, user id,
 or `anonymous` for public documents) is written to `audit_log` with
 `entity = document|document_category`. Downloads also increment
@@ -329,7 +329,7 @@ DOCUMENTS_DIR=/srv/clidive/data/documents membership documents import-legacy \
   name; the copy is re-read and its SHA-256 and size checked, and size and md5
   are compared with the catalogue (differences are reported, the file is
   imported as found).
-- Categories keep their parents, names, descriptions and order; files map
+- Folders keep their parents, names, descriptions and order; files map
   to documents with title `file_display_name` (or the file name),
   description, type from the extension (anything outside the upload
   allow-list, such as `.html`, is served as `application/octet-stream`),
@@ -339,20 +339,20 @@ DOCUMENTS_DIR=/srv/clidive/data/documents membership documents import-legacy \
   carries on. A later run copies it if it has turned up and restores it.
 - **Access mapping** (club decision, 2026-11-01; `legacyCategoryAccess`,
   `legacyFileAccess` and `movedToArchive` in `internal/documents/legacy.go`):
-  every category is `committee` and every file `inherit` (so committee);
+  every folder is `committee` and every file `inherit` (so committee);
   the one file whose WordPress role list is empty becomes `public`; the
-  top-level category "BSAC Courses (not updated)" moves under a new
-  top-level category "Archive" (committee). The summary prints the number of
+  top-level folder "BSAC Courses (not updated)" moves under a new
+  top-level folder "Archive" (committee). The summary prints the number of
   documents per effective access level.
-- Idempotent: categories are matched on `legacy_key` (`wpfb-cat:<cat_id>`,
+- Idempotent: folders are matched on `legacy_key` (`wpfb-cat:<cat_id>`,
   `archive`) and documents on `legacy_id`. A re-run updates metadata and
   re-applies the mapping (overwriting portal edits to imported titles,
-  descriptions, categories and access), and never copies a file twice. One
+  descriptions, folders and access), and never copies a file twice. One
   transaction; files copied by a failed run are removed. `-dry-run` checks
   everything, rolls back and copies nothing. Output is counts only; `-v`
   adds the legacy file ids that are missing or differ.
 
-On the 2026 catalogue (171 categories, 654 files, 831 MB): 172 categories
+On the 2026 catalogue (171 folders, 654 files, 831 MB): 172 folders
 (with Archive), 654 documents, 652 files copied, 2 missing (two `.html`
 pages of the course material, one of them empty in WordPress already),
 none differing; 1 public document, 653 committee.

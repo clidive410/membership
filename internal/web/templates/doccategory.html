@@ -5,7 +5,7 @@
 {{define "content"}}{{$d := .Data}}{{$c := $d.C}}
 {{with $d.Error}}<div class="alert alert-danger" role="alert"><div class="alert-icon">{{icon "alert-triangle"}}</div><div>{{.}}</div></div>{{end}}
 <section class="card mb-3" aria-labelledby="cat-h">
-  <div class="card-header"><h2 class="card-title" id="cat-h">Category</h2></div>
+  <div class="card-header"><h2 class="card-title" id="cat-h">Folder</h2></div>
   <form class="card-body" method="post" action="{{url "/admin/documents/categories/"}}{{$c.ID}}">
     <input type="hidden" name="csrf_token" value="{{.CSRF}}">
     <div class="mb-3"><label class="form-label required" for="c-name">Name</label>
@@ -18,7 +18,7 @@
         {{range $d.Parents}}<option value="{{.ID}}"{{if and $c.ParentID.Valid (eq .ID $c.ParentID.Int64)}} selected{{end}}>{{.Label}}</option>{{end}}</select></div>
       <div class="col-md-4 mb-3"><label class="form-label" for="c-access">Who can see it</label>
         <select class="form-select" id="c-access" name="access" aria-describedby="c-access-hint">{{range $d.Levels}}<option value="{{.}}"{{if eq . $c.Access}} selected{{end}}>{{docAccess .}}</option>{{end}}</select>
-        <small class="form-hint" id="c-access-hint">Never more open than the parent category.</small></div>
+        <small class="form-hint" id="c-access-hint">Never more open than the parent folder.</small></div>
       <div class="col-md-3 mb-3"><label class="form-label" for="c-order">Order</label>
         <input class="form-control" id="c-order" name="sort_order" inputmode="numeric" value="{{$c.SortOrder}}" aria-describedby="c-order-hint">
         <small class="form-hint" id="c-order-hint">Lower first, then by name.</small></div>
@@ -28,8 +28,8 @@
 </section>
 <form method="post" action="{{url "/admin/documents/categories/"}}{{$c.ID}}/{{if $c.ArchivedAt.Valid}}restore{{else}}archive{{end}}">
   <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-  {{if $c.ArchivedAt.Valid}}<button type="submit" class="btn btn-outline-secondary">{{icon "restore"}} Restore category</button>
-  {{else}}<button type="submit" class="btn btn-outline-danger">{{icon "archive"}} Archive category</button>
-  <small class="form-hint">Hides it, its subcategories and their documents from the library. Nothing is deleted.</small>{{end}}
+  {{if $c.ArchivedAt.Valid}}<button type="submit" class="btn btn-outline-secondary">{{icon "restore"}} Restore folder</button>
+  {{else}}<button type="submit" class="btn btn-outline-danger">{{icon "archive"}} Archive folder</button>
+  <small class="form-hint">Hides it, its subfolders and their documents from the library. Nothing is deleted.</small>{{end}}
 </form>
 {{end}}
