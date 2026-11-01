@@ -28,7 +28,8 @@ OpenID Connect (OIDC) login. The portal stays the source of truth; WordPress hol
   - `sub`: stable `user:<id>`; `email`, `email_verified: true` (login proves mailbox control);
     `name`, `given_name`, `family_name` from the member record (or user email when no member row).
   - `clidive` scope: `member_id`, `membership_status` (`active|expired|none`), `membership_type`,
-    `membership_expiry` (date), `roles` (portal roles), `bsac_member_id` (only when present).
+    `membership_expiry` (date), `roles` (portal roles incl. the new `editor`), `bsac_member_id`
+    (only when present).
 - Tokens: ID token 10 min, access token 10 min (opaque, for `/oauth/userinfo`), refresh token
   30 days rotating, revoked on portal logout and when the user is disabled. Authorization codes 60 s,
   single use. All stored hashed.
@@ -43,8 +44,11 @@ OpenID Connect (OIDC) login. The portal stays the source of truth; WordPress hol
 - Minimal users: created on first login with role `clidive_member` (custom role: `read` only), a random
   unusable password, display name from the `name` claim, and user meta `clidive_member_id`,
   `clidive_membership_status`, `clidive_roles`, `clidive_last_sso` updated on every login.
-  Committee claims never grant WordPress editor/admin rights automatically (editors keep separate
-  WordPress accounts, as today). No other profile fields are stored.
+  Role mapping, applied on every login (so a portal revocation takes effect at the next sign-in):
+  portal `admin` → WordPress `administrator`; portal `editor` (new portal role for website editors,
+  grantable from the Portal access screens) → WordPress `editor`; anything else → `clidive_member`.
+  Existing WordPress editor accounts are matched by email and taken over by SSO on first login
+  (their password is replaced by an unusable one). No other profile fields are stored.
 - Gating: `clidive_can_view_members_content()` becomes true when the current WordPress user has
   `clidive_membership_status = active` or is a WordPress editor/admin. `clidive_member_status()` reads
   the meta. The header-based path is removed from the plugin. Expired members can log in but see the
@@ -54,8 +58,9 @@ OpenID Connect (OIDC) login. The portal stays the source of truth; WordPress hol
   session and calls the portal's `end_session` so both sides agree.
 - Housekeeping: a daily WP-Cron job marks users whose last SSO login is older than 400 days as
   `clidive_membership_status=none`; nothing is deleted automatically.
-- Password reset, registration and the WordPress login form stay disabled for `clidive_member` users
-  (the plugin's "login only via OIDC" option for that role), so the account cannot be used without the portal.
+- Password login is removed for everyone: `wp-login.php` shows only "Sign in with Clidive",
+  password reset and registration are disabled, and application passwords stay off. Break-glass is
+  WP-CLI on the instance (`/srv/clidive/wp.sh user ...`), documented in the infra README.
 
 ### 3. Infrastructure
 - Portal: new Swarm secret `OIDC_WORDPRESS_CLIENT_SECRET` (GitHub secret, like the others); env
@@ -86,9 +91,8 @@ numbers, dates of birth or emergency contacts.
 - Minimal WordPress users are acceptable (owner, 2026-11-01).
 - Authorization code + PKCE only; RS256; no consent screen for the first-party WordPress client.
 - Expired members may sign in; content gating uses the `membership_status` claim.
+- Portal `admin` → WordPress administrator, portal `editor` → WordPress editor (owner, 2026-11-01).
+- No password login in WordPress at all; WP-CLI is the break-glass (owner, 2026-11-01).
 
 ## Open questions
-1. Should committee WordPress editors also be able to use SSO to reach `wp-admin`, by mapping the portal
-   `admin` role to the WordPress `editor` role? Default in this plan: no; keep editing accounts separate.
-2. Should the WordPress site offer "Log in with password" at all once SSO exists? Default: only on
-   `/wp-login.php` for editors, hidden from the public menu.
+None outstanding.
