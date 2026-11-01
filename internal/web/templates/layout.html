@@ -26,7 +26,6 @@
             {{if permit .P "members.emaillists"}}{{template "navitem" (dict "Href" (url "/admin/emails") "Icon" "mail" "Label" "Email lists" "Active" (eq .Nav "emails"))}}{{end}}
             {{if permit .P "users.manage"}}{{template "navitem" (dict "Href" (url "/admin/users") "Icon" "lock" "Label" "Portal access" "Active" (eq .Nav "users"))}}{{end}}
             {{if permit .P "documents.view"}}{{template "navitem" (dict "Href" (url "/documents") "Icon" "folder" "Label" "Documents" "Active" (eq .Nav "documents"))}}{{end}}
-            {{if permit .P "documents.manage"}}{{template "navitem" (dict "Href" (url "/admin/documents") "Icon" "file-text" "Label" "Manage documents" "Active" (eq .Nav "docadmin"))}}{{end}}
             {{if .P.MemberID}}{{template "navitem" (dict "Href" (url "/me") "Icon" "scuba-mask" "Label" "My membership" "Active" (eq .Nav "me"))}}{{end}}
           </ul>
         </nav>

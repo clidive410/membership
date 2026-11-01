@@ -259,7 +259,7 @@ var flashErrors = map[string]string{
 
 // navFor maps a page template to its sidebar entry.
 var navFor = map[string]string{"users": "users", "members": "members", "member": "members", "payments": "payments", "emails": "emails", "me": "me",
-	"documents": "documents", "docadmin": "docadmin", "doccategory": "docadmin", "document": "docadmin"}
+	"documents": "documents", "docadmin": "documents", "doccategory": "documents", "document": "documents"}
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name, title string, data any) {
 	pg := page{

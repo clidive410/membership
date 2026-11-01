@@ -485,3 +485,13 @@ func TestDocumentsSharedBrowser(t *testing.T) {
 		t.Error("folder view: breadcrumb and download links")
 	}
 }
+
+// The sidebar links the library only; managers reach /admin/documents from it.
+func TestDocumentsMenu(t *testing.T) {
+	e := newDocEnv(t)
+	body := e.do(t, "GET", "/admin/documents", e.fa.session("admin@example.org"), nil).Body.String()
+	nav := body[:strings.Index(body, `id="main"`)]
+	if strings.Contains(nav, `href="/admin/documents"`) || !strings.Contains(nav, `href="/documents" aria-current="page"`) {
+		t.Error("menu: Documents only, active on the manage pages")
+	}
+}
