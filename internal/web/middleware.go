@@ -58,13 +58,17 @@ func (s *Server) loadSession(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		c, err := r.Cookie(sessionCookie)
-		if err == nil && c.Value != "" {
+		// A browser can hold more than one cookie of this name when the cookie
+		// scope changed (e.g. a stale copy set for the parent domain); try each.
+		for _, c := range cookiesNamed(r, sessionCookie) {
 			p, err := s.opt.Auth.LookupSession(r.Context(), c.Value)
 			if err != nil {
 				s.opt.Log.Error("looking up session", "err", err)
-			} else if p != nil {
+				continue
+			}
+			if p != nil {
 				r = r.WithContext(withPrincipal(r.Context(), p))
+				break
 			}
 		}
 		next.ServeHTTP(w, r)
@@ -109,6 +113,41 @@ func (s *Server) csrfToken(w http.ResponseWriter, r *http.Request) string {
 	// Make the new value visible to the rest of this request.
 	r.AddCookie(&http.Cookie{Name: csrfCookie, Value: v})
 	return s.csrf.Token(v)
+}
+
+// cookiesNamed returns every cookie with the given name, in header order.
+func cookiesNamed(r *http.Request, name string) []*http.Cookie {
+	var out []*http.Cookie
+	for _, c := range r.Cookies() {
+		if c.Name == name && c.Value != "" {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// clearCookieVariants expires a cookie on the host, on the configured cookie
+// domain and on the request host's parent domain, so stale copies left by an
+// earlier cookie scope cannot shadow the current one.
+func (s *Server) clearCookieVariants(w http.ResponseWriter, r *http.Request, name string) {
+	domains := []string{"", s.opt.CookieDomain}
+	host := r.Host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	if parts := strings.Split(host, "."); len(parts) >= 3 {
+		domains = append(domains, strings.Join(parts[1:], "."))
+	}
+	seen := map[string]bool{}
+	for _, d := range domains {
+		if seen[d] {
+			continue
+		}
+		seen[d] = true
+		for _, path := range []string{"/", s.cookiePath()} {
+			http.SetCookie(w, &http.Cookie{Name: name, Value: "", Path: path, Domain: d, MaxAge: -1, HttpOnly: true, Secure: s.opt.CookieSecure, SameSite: http.SameSiteLaxMode})
+		}
+	}
 }
 
 func (s *Server) cookiePath() string {
@@ -157,9 +196,23 @@ func (s *Server) checkCSRF(next http.Handler) http.Handler {
 				return
 			}
 		}
-		c, err := r.Cookie(csrfCookie)
-		if err != nil || !s.csrf.Valid(c.Value, r.PostForm.Get(csrfField)) {
+		token := r.PostForm.Get(csrfField)
+		valid := false
+		for _, c := range cookiesNamed(r, csrfCookie) {
+			if s.csrf.Valid(c.Value, token) {
+				valid = true
+				break
+			}
+		}
+		if !valid {
 			s.opt.Log.Warn("csrf check failed", "path", r.URL.Path)
+			// Most likely a stale cookie from an earlier cookie scope: drop every
+			// variant so the next page load starts clean, then reload the form.
+			s.clearCookieVariants(w, r, csrfCookie)
+			if r.Header.Get("Sec-Fetch-Mode") == "navigate" || r.Header.Get("Accept") != "" && strings.Contains(r.Header.Get("Accept"), "text/html") {
+				http.Redirect(w, r, r.URL.RequestURI(), http.StatusSeeOther)
+				return
+			}
 			http.Error(w, "Invalid or missing form token. Please go back, reload the page and try again.", http.StatusForbidden)
 			return
 		}
