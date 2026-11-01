@@ -17,6 +17,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/clidive410/membership/internal/auth"
+	"github.com/clidive410/membership/internal/documents"
 	"github.com/clidive410/membership/internal/idp"
 	"github.com/clidive410/membership/internal/mail"
 	"github.com/clidive410/membership/internal/members"
@@ -100,7 +101,13 @@ type Options struct {
 	// OIDC, when set, serves the OpenID Connect provider endpoints
 	// (/.well-known/openid-configuration and /oauth/...).
 	OIDC *idp.Provider
-	Now  func() time.Time
+	// Documents, when set, serves the document library (/documents and
+	// /admin/documents) with files under DocumentFiles.Dir.
+	Documents     DocumentStore
+	DocumentFiles documents.Files
+	// MaxUploadBytes limits document uploads, default 50 MB.
+	MaxUploadBytes int64
+	Now            func() time.Time
 }
 
 // Server holds the HTTP handlers.
@@ -221,6 +228,9 @@ func (s *Server) Handler() http.Handler {
 	route("GET", "/users", auth.PermManageUsers, s.handleUserList)
 	route("POST", "/users", auth.PermManageUsers, s.handleUserInvite)
 	route("POST", "/users/{uid}/access", auth.PermManageUsers, s.handleUserAccess)
+	if s.opt.Documents != nil {
+		s.documentRoutes(r, route)
+	}
 	admin.Use(s.requireSignIn, s.requirePermission(perms))
 
 	if s.oidcEnabled() {
@@ -238,7 +248,7 @@ func (s *Server) Handler() http.Handler {
 		s.logRequests,
 		s.recoverPanics,
 		s.clientIP,
-		timeout(requestTimeout),
+		s.timeout(requestTimeout),
 		s.stripBase,
 		securityHeaders,
 		s.loadSession,
@@ -334,6 +344,8 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 		dest = "/admin/members"
 	case p != nil && p.MemberID != 0:
 		dest = "/me"
+	case p != nil && s.opt.Documents != nil:
+		dest = "/documents"
 	}
 	http.Redirect(w, r, s.url(dest), http.StatusSeeOther)
 }

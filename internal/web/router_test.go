@@ -115,7 +115,7 @@ func TestPanicIsRecovered(t *testing.T) {
 }
 
 func TestTimeout(t *testing.T) {
-	h := timeout(10 * time.Millisecond)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := (&Server{}).timeout(10 * time.Millisecond)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-r.Context().Done()
 	}))
 	w := httptest.NewRecorder()

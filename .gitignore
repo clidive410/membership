@@ -15,3 +15,6 @@ coverage.*
 .DS_Store
 .idea/
 .vscode/
+
+# Local document library (DOCUMENTS_DIR default in development)
+/data/

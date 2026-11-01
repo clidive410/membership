@@ -5,6 +5,7 @@
 //	membership migrate-legacy          import from the legacy PHP database
 //	membership user <subcommand>       manage login users and roles
 //	membership oidc <subcommand>       OpenID Connect clients and signing keys
+//	membership documents import-legacy import the WordPress WP-Filebase library
 //	membership healthcheck             probe /healthz (Docker HEALTHCHECK)
 //	membership seed-dev                fill an empty scratch database with invented members
 package main
@@ -29,6 +30,7 @@ import (
 	"github.com/clidive410/membership/internal/config"
 	"github.com/clidive410/membership/internal/db"
 	"github.com/clidive410/membership/internal/devseed"
+	"github.com/clidive410/membership/internal/documents"
 	"github.com/clidive410/membership/internal/idp"
 	"github.com/clidive410/membership/internal/legacy"
 	"github.com/clidive410/membership/internal/mail"
@@ -56,6 +58,7 @@ Commands:
   migrate-legacy   Import members from the legacy database (-legacy-dsn, -dry-run)
   user             Manage users: invite, set-password, grant, revoke, link, disable, enable, list
   oidc             OpenID Connect provider: client create|list|rotate-secret|disable|ensure, rotate-keys
+  documents        Document library: import-legacy (-catalog-dsn, -files-dir, -dry-run, -v)
   healthcheck      Exit 0 if the local server's /healthz answers 200 (HEALTHCHECK_URL overrides)
   seed-dev         Insert invented members into an EMPTY database (-n 40, -seed 1)
   version          Print the version
@@ -80,6 +83,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return userCmd(ctx, args, stdin, stdout)
 	case "oidc":
 		return oidcCmd(ctx, args, stdout)
+	case "documents":
+		return documentsCmd(ctx, args, stdout)
 	case "healthcheck":
 		return healthcheck(ctx, os.Getenv)
 	case "seed-dev":
@@ -180,6 +185,12 @@ func serve(ctx context.Context, args []string) error {
 	// logs and carries on if that fails.
 	ensureWordPressClient(ctx, provider.Clients(), os.Getenv, log)
 
+	// The library must never stop the portal: a missing or read-only
+	// directory only makes uploads and downloads fail (and is logged).
+	if err := os.MkdirAll(cfg.DocumentsDir, 0o750); err != nil {
+		log.Error("documents: cannot create DOCUMENTS_DIR; uploads and downloads will fail", "dir", cfg.DocumentsDir, "err", err)
+	}
+
 	srv := web.New(web.Options{
 		Members:          memberStore,
 		Auth:             authStore,
@@ -195,6 +206,9 @@ func serve(ctx context.Context, args []string) error {
 		Mailer:           mailer,
 		TrustedProxies:   cfg.TrustedProxies,
 		OIDC:             provider,
+		Documents:        documents.NewStore(conn),
+		DocumentFiles:    documents.Files{Dir: cfg.DocumentsDir},
+		MaxUploadBytes:   int64(cfg.DocumentsMaxUploadMB) << 20,
 	})
 	httpSrv := &http.Server{
 		Addr:              cfg.ListenAddr,

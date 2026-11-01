@@ -1,0 +1,57 @@
+{{define "heading"}}{{if .Data.Current}}{{.Data.Current.Name}}{{else}}Documents{{end}}{{end}}
+{{define "pretitle"}}{{if .Data.Current}}<div class="page-pretitle"><a href="{{url "/documents"}}">Documents</a>{{range .Data.Path}}{{if ne .ID $.Data.Current.ID}} › <a href="{{url "/documents"}}?cat={{.Slug}}">{{.Name}}</a>{{end}}{{end}}</div>{{end}}{{end}}
+{{define "actions"}}{{if permit .P "documents.manage"}}<a class="btn btn-outline-secondary" href="{{url "/admin/documents"}}">Manage documents</a>{{end}}{{end}}
+
+{{define "doctree"}}<ul class="doc-tree">{{range .}}<li>
+  {{- if .Children}}<details{{if .Open}} open{{end}}><summary>{{template "doclink" .}}</summary>{{template "doctree" .Children}}</details>
+  {{- else}}{{template "doclink" .}}{{end}}</li>{{end}}</ul>{{end}}
+{{define "doclink"}}<a href="{{url "/documents"}}?cat={{.C.Slug}}"{{if .Current}} aria-current="page"{{end}}>{{.C.Name}}</a>{{end}}
+
+{{define "content"}}{{$d := .Data}}
+<div class="{{if not .P}}container-xl py-4 w-100{{end}}">
+{{if not .Shell}}<div class="mb-3">
+  {{template "pretitle" .}}
+  <h1 class="page-title">{{template "heading" .}}</h1>
+</div>{{end}}
+{{if not .P}}<div class="alert alert-info" role="note"><div class="alert-icon">{{icon "info-circle"}}</div><div>Club members: <a href="{{url "/login"}}?next=%2Fdocuments">sign in</a> to see member documents.</div></div>{{end}}
+{{if $d.Expired}}<div class="alert alert-warning" role="status"><div class="alert-icon">{{icon "alert-triangle"}}</div><div>Your Clidive membership expired on {{ukdate $d.ExpiredOn}}. You can still see member documents; to renew, email <a href="mailto:membership@clidive.org">membership@clidive.org</a>.</div></div>{{end}}
+{{if $d.Empty}}
+<div class="card"><div class="card-body text-secondary">No documents yet.</div></div>
+{{else}}
+<div class="row g-3">
+  <nav class="col-lg-4" aria-label="Categories">
+    <div class="card"><div class="card-body">
+      <a href="{{url "/documents"}}"{{if not $d.Current}} aria-current="page"{{end}}>{{icon "folder"}} All categories</a>
+      {{template "doctree" $d.Tree}}
+    </div></div>
+  </nav>
+  <div class="col-lg-8">
+    <form method="get" action="{{url "/documents"}}" role="search" class="mb-3">
+      <label class="visually-hidden" for="doc-q">Search documents</label>
+      <div class="input-icon"><span class="input-icon-addon">{{icon "search"}}</span>
+        <input id="doc-q" name="q" type="search" class="form-control" value="{{$d.Query}}" placeholder="Search titles and descriptions"></div>
+    </form>
+    {{if and (not $d.Query) $d.Children}}<div class="card mb-3"><div class="list-group list-group-flush">
+      {{range $d.Children}}<a class="list-group-item list-group-item-action" href="{{url "/documents"}}?cat={{.C.Slug}}">{{icon "folder"}} {{.C.Name}}{{with .C.Description}} <span class="text-secondary small">· {{.}}</span>{{end}}</a>{{end}}
+    </div></div>{{end}}
+    {{with $d.Current}}{{with .Description}}<p class="text-secondary">{{.}}</p>{{end}}{{end}}
+    <div class="card">
+      {{if $d.Docs}}
+      <div class="table-responsive"><table class="table table-vcenter card-table">
+        <thead><tr><th scope="col">Document</th><th scope="col" class="text-end">Size</th><th scope="col" class="text-end">Date</th></tr></thead>
+        <tbody>{{range $d.Docs}}<tr>
+          <td><a href="{{url "/documents/"}}{{.D.ID}}/download">{{icon "file-text"}} {{.D.Title}}</a>
+            {{- with .D.Description}}<div class="small text-secondary">{{.}}</div>{{end}}
+            {{- if $d.Query}}{{with .Category}}<div class="small text-secondary">{{.}}</div>{{end}}{{end}}
+            {{- if and $.P (ne .Access "members")}} <span class="badge bg-secondary-lt">{{docAccess .Access}}</span>{{end}}</td>
+          <td class="num text-end text-nowrap">{{bytes .D.SizeBytes}}</td>
+          <td class="num text-end text-nowrap">{{.D.UploadedAt.Format "02/01/2006"}}</td>
+        </tr>{{end}}</tbody>
+      </table></div>
+      {{else}}<div class="card-body text-secondary">{{if $d.Query}}No documents match.{{else}}No documents here.{{end}}</div>{{end}}
+    </div>
+  </div>
+</div>
+{{end}}
+</div>
+{{end}}
