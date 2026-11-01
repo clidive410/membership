@@ -282,7 +282,7 @@ site. Folders (`document_categories` in the code and database) form a tree; each
 
 | Route | Who | What |
 |-------|-----|------|
-| `GET /documents` | everyone | Folder tree (collapsible), subfolders, documents with size and date, search over titles and descriptions (`?q=`), one folder with `?cat=<slug>`. Each item is shown or not by its access. |
+| `GET /documents` | everyone | Browse folders (`?cat=<slug>`: breadcrumb, subfolders, then documents with size and date, in one list) and search all documents (`?q=`). Each item is shown or not by its access. The same list component as the manage page (`browser` in `templates/partials.html`). |
 | `GET /documents/{id}/download` | per document | The file as an attachment. A visitor asking for a members or committee document is sent to sign in; anything else they may not see is 404. |
 | `/admin/documents` | `documents.manage` | Browse folders like a file manager (`?cat=<id>`: subfolders, then documents, in one list), search all documents, archived view. Upload; create, edit (name, description, parent, order, access) and archive/restore folders; edit (title, description, folder, access), replace the file of, and archive/restore documents. |
 

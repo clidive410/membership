@@ -86,30 +86,15 @@ func (s *Server) maxUpload() int64 {
 
 // ---- Member side ----
 
-// catNode is a category in the browsing tree.
+// catNode is a category in a tree (used to order folders).
 type catNode struct {
 	C        *documents.Category
 	Children []*catNode
-	Open     bool // on the path to the current category
-	Current  bool
-}
-
-// docRow is a document in a list, with its effective access and category.
-type docRow struct {
-	D        *documents.Document
-	Access   documents.Access
-	Category string // category path, "" at the top level
-	Hidden   bool   // archived directly or through its category (manage list)
 }
 
 type documentsData struct {
-	Tree      []*catNode
 	Current   *documents.Category
-	Path      []*documents.Category
-	Children  []*catNode // subcategories of the current one (or top level)
-	Docs      []docRow
-	Query     string
-	Level     documents.Access
+	B         docBrowser
 	Expired   bool
 	ExpiredOn sql.NullTime
 	Empty     bool // nothing visible at all
@@ -138,12 +123,12 @@ func visibleCategories(lib *documents.Library, level documents.Access) map[int64
 
 // buildTree arranges the categories in include into a tree, in the
 // library's order (sort_order, name).
-func buildTree(lib *documents.Library, include func(*documents.Category) bool, current int64) []*catNode {
+func buildTree(lib *documents.Library, include func(*documents.Category) bool) []*catNode {
 	nodes := map[int64]*catNode{}
 	for i := range lib.Categories {
 		c := &lib.Categories[i]
 		if include(c) {
-			nodes[c.ID] = &catNode{C: c, Current: c.ID == current}
+			nodes[c.ID] = &catNode{C: c}
 		}
 	}
 	var roots []*catNode
@@ -158,24 +143,7 @@ func buildTree(lib *documents.Library, include func(*documents.Category) bool, c
 			roots = append(roots, n)
 		}
 	}
-	for _, c := range lib.Path(current) {
-		if n := nodes[c.ID]; n != nil {
-			n.Open = true
-		}
-	}
 	return roots
-}
-
-func findNode(nodes []*catNode, id int64) *catNode {
-	for _, n := range nodes {
-		if n.C.ID == id {
-			return n
-		}
-		if f := findNode(n.Children, id); f != nil {
-			return f
-		}
-	}
-	return nil
 }
 
 func categoryLabel(lib *documents.Library, id sql.NullInt64) string {
@@ -201,7 +169,7 @@ func (s *Server) handleDocuments(w http.ResponseWriter, r *http.Request) {
 	}
 	level := documents.ViewerLevel(p)
 	vis := visibleCategories(lib, level)
-	d := documentsData{Level: level, Query: strings.TrimSpace(r.URL.Query().Get("q"))}
+	d := documentsData{Empty: true}
 	var current int64
 	if slug := r.URL.Query().Get("cat"); slug != "" {
 		for i := range lib.Categories {
@@ -213,30 +181,46 @@ func (s *Server) handleDocuments(w http.ResponseWriter, r *http.Request) {
 			s.renderError(w, r, http.StatusNotFound, "No such folder.")
 			return
 		}
-		d.Path = lib.Path(current)
 	}
-	d.Tree = buildTree(lib, func(c *documents.Category) bool { return vis[c.ID] }, current)
-	d.Children = d.Tree
-	if n := findNode(d.Tree, current); n != nil {
-		d.Children = n.Children
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	d.B = docBrowser{Action: s.url("/documents"), Query: query, AccessCol: p != nil, Empty: "No documents here."}
+	if d.Current != nil {
+		d.B.Hidden = map[string]string{"cat": d.Current.Slug}
 	}
-	any := len(d.Tree) > 0
+	folderHref := func(c *documents.Category) string { return s.url("/documents?cat=" + url.QueryEscape(c.Slug)) }
+	if query != "" {
+		d.B.Title, d.B.Empty = "Search results", "No documents match."
+	} else {
+		d.B.Crumbs = crumbs(lib, current, folderHref, s.url("/documents"))
+	}
+	direct := map[int64]int{}
+	var docRows []browseRow
 	for i := range lib.Documents {
 		doc := &lib.Documents[i]
 		if !lib.CanView(level, doc) {
 			continue
 		}
-		any = true
-		if d.Query != "" {
-			if !documents.Matches(doc, d.Query) {
-				continue
-			}
-		} else if doc.CategoryID.Int64 != current || doc.CategoryID.Valid != (current != 0) {
+		d.Empty = false
+		if doc.CategoryID.Valid {
+			direct[doc.CategoryID.Int64]++
+		}
+		if query != "" && !documents.Matches(doc, query) || query == "" && !inFolder(doc.CategoryID, current) {
 			continue
 		}
-		d.Docs = append(d.Docs, docRow{D: doc, Access: lib.EffectiveAccess(doc), Category: categoryLabel(lib, doc.CategoryID)})
+		docRows = append(docRows, documentRow(lib, doc, s.url(fmt.Sprintf("/documents/%d/download", doc.ID)), query != ""))
 	}
-	d.Empty = !any
+	var rows []browseRow
+	if query == "" {
+		for i := range lib.Categories {
+			c := &lib.Categories[i]
+			if vis[c.ID] && inFolder(c.ParentID, current) {
+				d.Empty = false
+				rows = append(rows, folderRow(c, c.Name, folderHref(c), lib.CategoryAccess(c.ID), direct[c.ID]))
+			}
+		}
+	}
+	d.Empty = d.Empty && len(vis) == 0
+	d.B.paginateRows(s.url("/documents"), r.URL.Query(), append(rows, docRows...))
 	if p != nil && p.MemberID != 0 {
 		if m, err := s.opt.Members.GetMember(ctx, p.MemberID); err == nil && m.Expired(s.opt.Now()) {
 			d.Expired, d.ExpiredOn = true, m.MembershipExpiry
@@ -337,28 +321,16 @@ func flatten(lib *documents.Library) []catOption {
 			walk(n.Children, depth+1)
 		}
 	}
-	walk(buildTree(lib, func(*documents.Category) bool { return true }, 0), 0)
+	walk(buildTree(lib, func(*documents.Category) bool { return true }), 0)
 	return out
-}
-
-// adminEntry is one row of the manage list: a folder or a document.
-type adminEntry struct {
-	Folder *catOption
-	Doc    *docRow
 }
 
 type docAdminData struct {
 	Categories []catOption // every folder, for the selects
-	Entries    []adminEntry
-	Path       []*documents.Category // breadcrumb of the open folder
-	Pager      pager
-	Count      int
-	Query      string
+	B          docBrowser
 	Cat        string // the open folder id, or ""
 	CatID      int64
 	CatName    string
-	Archived   bool // archived items, from every folder
-	Flat       bool // search or archived view: entries from every folder
 	MaxMB      int64
 	Extensions string
 	Error      string
@@ -376,52 +348,50 @@ func (s *Server) docAdminPage(w http.ResponseWriter, r *http.Request, status int
 		return
 	}
 	q := r.URL.Query()
-	d := docAdminData{Categories: flatten(lib), Query: strings.TrimSpace(q.Get("q")),
-		Archived: q.Get("show") == "archived", MaxMB: s.maxUpload() >> 20, Extensions: documents.AllowedExtensions,
+	d := docAdminData{Categories: flatten(lib), MaxMB: s.maxUpload() >> 20, Extensions: documents.AllowedExtensions,
 		Error: errMsg, Levels: append(slices.Clone(documents.Levels), documents.Inherit)}
 	if errMsg != "" {
 		d.Form = r.PostForm
 	}
 	if id, err := strconv.ParseInt(q.Get("cat"), 10, 64); err == nil && lib.Category(id) != nil {
 		d.CatID, d.CatName, d.Cat = id, lib.Category(id).Name, strconv.FormatInt(id, 10)
-		d.Path = lib.Path(id)
 	}
-	d.Flat = d.Query != "" || d.Archived
-	var entries []adminEntry
-	for i := range d.Categories {
-		o := &d.Categories[i]
-		var show bool
-		if d.Flat {
-			show = d.Archived && d.Query == "" && o.C.ArchivedAt.Valid
-		} else {
-			show = o.C.ParentID.Int64 == d.CatID && o.C.ParentID.Valid == (d.CatID != 0)
+	b := docBrowser{Action: s.url("/admin/documents"), Query: strings.TrimSpace(q.Get("q")), ArchivedToggle: true,
+		Archived: q.Get("show") == "archived", AccessCol: true, DownloadsCol: true, Empty: "This folder is empty."}
+	if d.CatID != 0 {
+		b.Hidden = map[string]string{"cat": d.Cat}
+	}
+	folderHref := func(c *documents.Category) string { return s.url(fmt.Sprintf("/admin/documents?cat=%d", c.ID)) }
+	flat := b.Query != "" || b.Archived
+	switch {
+	case b.Archived:
+		b.Title, b.Empty = "Archived", "Nothing is archived."
+	case b.Query != "":
+		b.Title, b.Empty = "Search results", "Nothing matches."
+	default:
+		b.Crumbs = crumbs(lib, d.CatID, folderHref, s.url("/admin/documents"))
+	}
+	var rows []browseRow
+	for _, o := range d.Categories {
+		c := o.C
+		if flat && !(b.Archived && b.Query == "" && c.ArchivedAt.Valid) || !flat && !inFolder(c.ParentID, d.CatID) {
+			continue
 		}
-		if show {
-			f := *o
-			f.Label = f.C.Name
-			if d.Flat {
-				f.Label = categoryLabel(lib, sql.NullInt64{Int64: f.ID, Valid: true})
-			}
-			entries = append(entries, adminEntry{Folder: &f})
+		name := c.Name
+		if flat {
+			name = categoryLabel(lib, sql.NullInt64{Int64: c.ID, Valid: true})
 		}
+		rows = append(rows, folderRow(c, name, folderHref(c), o.Access, o.Docs))
 	}
 	for i := range lib.Documents {
 		doc := &lib.Documents[i]
-		if doc.ArchivedAt.Valid != d.Archived {
+		if doc.ArchivedAt.Valid != b.Archived || b.Query != "" && !documents.Matches(doc, b.Query) || !flat && !inFolder(doc.CategoryID, d.CatID) {
 			continue
 		}
-		if d.Query != "" && !documents.Matches(doc, d.Query) {
-			continue
-		}
-		if !d.Flat && (doc.CategoryID.Int64 != d.CatID || doc.CategoryID.Valid != (d.CatID != 0)) {
-			continue
-		}
-		entries = append(entries, adminEntry{Doc: &docRow{D: doc, Access: lib.EffectiveAccess(doc),
-			Category: categoryLabel(lib, doc.CategoryID), Hidden: lib.Hidden(doc)}})
+		rows = append(rows, documentRow(lib, doc, s.url(fmt.Sprintf("/admin/documents/%d", doc.ID)), flat))
 	}
-	requested, _ := strconv.Atoi(q.Get("page"))
-	lo, hi, pg := paginate(s.url("/admin/documents"), q, requested, len(entries), pageSize)
-	d.Entries, d.Pager, d.Count = entries[lo:hi], pg, len(entries)
+	b.paginateRows(s.url("/admin/documents"), q, rows)
+	d.B = b
 	s.render(w, r, status, "docadmin", "Manage documents", d)
 }
 

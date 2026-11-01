@@ -10,38 +10,7 @@
 {{with $d.Error}}<div class="alert alert-danger" role="alert"><div class="alert-icon">{{icon "alert-triangle"}}</div><div>{{.}}</div></div>{{end}}
 <div class="row row-cards">
   <div class="col-12">
-    <section class="card" aria-labelledby="docs-h">
-      <div class="card-header">
-        <h2 class="card-title" id="docs-h">{{if $d.Archived}}Archived{{else if $d.Query}}Search results{{else}}<a href="{{url "/admin/documents"}}">All folders</a>{{range $d.Path}} › {{if eq .ID $d.CatID}}{{.Name}}{{else}}<a href="{{url "/admin/documents"}}?cat={{.ID}}">{{.Name}}</a>{{end}}{{end}}{{end}}</h2>
-        <span class="card-actions text-secondary small">{{$d.Count}}</span>
-      </div>
-      <div class="card-body border-bottom">
-        <form method="get" action="{{url "/admin/documents"}}" role="search" class="row g-2">
-          {{with $d.CatID}}<input type="hidden" name="cat" value="{{.}}">{{end}}
-          <div class="col-md-8"><label class="visually-hidden" for="f-q">Search all documents</label><input id="f-q" class="form-control" type="search" name="q" value="{{$d.Query}}" placeholder="Search all documents"></div>
-          <div class="col-md-2"><label class="form-check mt-2"><input class="form-check-input" type="checkbox" name="show" value="archived"{{if $d.Archived}} checked{{end}}><span class="form-check-label">Archived</span></label></div>
-          <div class="col-md-2"><button class="btn w-100" type="submit">Search</button></div>
-        </form>
-      </div>
-      {{if $d.Entries}}<div class="table-responsive"><table class="table table-vcenter card-table table-sm">
-        <thead><tr><th scope="col">Name</th><th scope="col">Who can see it</th><th scope="col" class="text-end">Size</th><th scope="col" class="text-end">Date</th><th scope="col" class="text-end">Downloads</th></tr></thead>
-        <tbody>{{range $d.Entries}}{{with .Folder}}<tr>
-          <td><a href="{{url "/admin/documents"}}?cat={{.ID}}">{{icon "folder"}} {{.Label}}</a>{{if .C.ArchivedAt.Valid}} <span class="badge bg-secondary-lt">archived</span>{{end}}</td>
-          <td class="small">{{docAccess .Access}}</td>
-          <td class="num text-end text-nowrap small text-secondary">{{.Docs}} document{{if ne .Docs 1}}s{{end}}</td>
-          <td></td><td></td>
-        </tr>{{end}}{{with .Doc}}<tr>
-          <td><a href="{{url "/admin/documents/"}}{{.D.ID}}">{{icon "file-text"}} {{.D.Title}}</a>{{if not .D.SHA256}} <span class="badge bg-red-lt">file missing</span>{{end}}
-            {{- if $d.Flat}}<div class="small text-secondary">{{or .Category "(top level)"}}</div>{{end}}</td>
-          <td class="small">{{docAccess .Access}}{{if eq (print .D.Access) "inherit"}} <span class="text-secondary">(from folder)</span>{{end}}</td>
-          <td class="num text-end text-nowrap">{{bytes .D.SizeBytes}}</td>
-          <td class="num text-end text-nowrap">{{.D.UploadedAt.Format "02/01/2006"}}</td>
-          <td class="num text-end">{{.D.Downloads}}</td>
-        </tr>{{end}}{{end}}</tbody>
-      </table></div>
-      {{if gt $d.Pager.Pages 1}}<div class="card-footer d-flex align-items-center"><span class="text-secondary small">{{$d.Pager.From}}–{{$d.Pager.To}} of {{$d.Pager.Total}}</span>{{template "pagination" $d.Pager}}</div>{{end}}
-      {{else}}<div class="card-body text-secondary">{{if $d.Flat}}Nothing matches.{{else}}This folder is empty.{{end}}</div>{{end}}
-    </section>
+    {{template "browser" $d.B}}
   </div>
   <div class="col-lg-6">
     <section class="card h-100" aria-labelledby="up-h">

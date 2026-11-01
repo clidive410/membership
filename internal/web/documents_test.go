@@ -465,3 +465,23 @@ func TestCategoryManage(t *testing.T) {
 		t.Errorf("unknown category: %d", w.Code)
 	}
 }
+
+// Both pages render the same folder-and-document list.
+func TestDocumentsSharedBrowser(t *testing.T) {
+	e := newDocEnv(t)
+	mgr := e.fa.session("manager@example.org")
+	member := e.do(t, "GET", "/documents", mgr, nil).Body.String()
+	admin := e.do(t, "GET", "/admin/documents", mgr, nil).Body.String()
+	for name, body := range map[string]string{"library": member, "manage": admin} {
+		if !strings.Contains(body, `aria-labelledby="browse-h"`) || !strings.Contains(body, "All folders") || !strings.Contains(body, "Committee papers") {
+			t.Errorf("%s page does not use the shared list", name)
+		}
+	}
+	if !strings.Contains(member, `href="/documents?cat=committee-papers"`) || !strings.Contains(admin, `href="/admin/documents?cat=3"`) {
+		t.Error("folder rows link within their own page")
+	}
+	inside := e.do(t, "GET", "/documents?cat=committee-papers", mgr, nil).Body.String()
+	if !strings.Contains(inside, `href="/documents/13/download"`) || !strings.Contains(inside, `<a href="/documents">All folders</a> › Committee papers`) {
+		t.Error("folder view: breadcrumb and download links")
+	}
+}

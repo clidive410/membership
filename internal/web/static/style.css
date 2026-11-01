@@ -217,8 +217,3 @@ fieldset[disabled] .card-body { background: var(--tblr-bg-surface-secondary, #f9
 /* Wide tables get the room; forms stay readable. */
 .page-wrapper [class^=container] { max-width: 96rem; }
 
-/* Document library: category tree (nested lists, <details> to collapse). */
-.doc-tree { list-style: none; margin: .25rem 0 0; padding-left: 1rem; }
-.doc-tree li { margin: .15rem 0; }
-.doc-tree summary { cursor: pointer; }
-.doc-tree a[aria-current], .card a[aria-current] { font-weight: 700; color: var(--tblr-body-color); }
