@@ -182,3 +182,33 @@ func TestPagesRender(t *testing.T) {
 		t.Errorf("member 403 page: %d", w.Code)
 	}
 }
+
+// Without a provider (Options.OIDC nil) the OIDC endpoints do not exist and
+// keep the CSRF checks.
+func TestOIDCRoutesOffWithoutProvider(t *testing.T) {
+	e := newEnv(t, "")
+	for _, p := range []string{"/.well-known/openid-configuration", "/oauth/authorize", "/oauth/jwks", "/oauth/continue?id=x"} {
+		if w := e.do(t, "GET", p, "", nil); w.Code != http.StatusNotFound {
+			t.Errorf("GET %s: %d", p, w.Code)
+		}
+	}
+	if w := e.do(t, "POST", "/oauth/token", "", url.Values{"csrf_token": {"forged"}}); w.Code != http.StatusForbidden {
+		t.Errorf("POST /oauth/token without provider must keep the CSRF check: %d", w.Code)
+	}
+}
+
+// A signed-in user arriving at /login with a valid next goes straight there
+// (the OIDC authorize round trip), whatever their roles.
+func TestLoginFormSignedInFollowsNext(t *testing.T) {
+	e := newEnv(t, "")
+	e.fa.addUser("editor@example.org", "editor-password-1", 0, auth.RoleEditor)
+	tok := e.fa.session("editor@example.org")
+	next := "/oauth/authorize?client_id=wordpress"
+	w := e.do(t, "GET", "/login?"+url.Values{"next": {next}}.Encode(), tok, nil)
+	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != next {
+		t.Errorf("signed-in login with next: %d %q", w.Code, w.Header().Get("Location"))
+	}
+	if w := e.do(t, "GET", "/login?next=//evil.example/", tok, nil); w.Code != 200 {
+		t.Errorf("unsafe next must not redirect: %d", w.Code)
+	}
+}

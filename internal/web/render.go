@@ -19,7 +19,7 @@ import (
 
 type pageTemplate struct{ t *template.Template }
 
-var pageNames = []string{"login", "linksent", "forgot", "reset", "users", "me", "members", "member", "payments", "emails", "error"}
+var pageNames = []string{"login", "linksent", "forgot", "reset", "users", "me", "members", "member", "payments", "emails", "error", "consent", "endsession"}
 
 // typeColors maps the legacy membership type ids to badge colours; unknown
 // types fall back to the default badge.
@@ -242,6 +242,9 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name
 	}
 	if d, ok := data.(memberData); ok && d.New {
 		pg.Nav = "new"
+	}
+	if d, ok := data.(loginData); ok {
+		s.allowLoginRedirect(w, d.Next) // signing in may end at an OIDC client
 	}
 	if name == "payments" {
 		if n, err := strconv.Atoi(r.URL.Query().Get("n")); err == nil && r.URL.Query().Get("flash") == "bulk" {

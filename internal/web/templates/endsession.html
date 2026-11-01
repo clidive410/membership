@@ -1,0 +1,18 @@
+{{define "content"}}
+<div class="container container-tight py-4">
+  <div class="text-center mb-4">
+    <span class="login-brand">{{template "wordmark" .}}</span>
+  </div>
+  <div class="card card-md">
+    <div class="card-body text-center">
+      <h1 class="h2 mb-3">Sign out of the Clidive portal?</h1>
+      {{with .P}}<p>You are signed in as <strong>{{.Email}}</strong>.</p>{{end}}
+      <form method="post" action="{{url "/logout"}}" class="d-flex gap-2 justify-content-center">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <button type="submit" class="btn btn-primary">{{icon "logout"}} Sign out</button>
+        <a class="btn btn-outline-secondary" href="{{url "/"}}">Stay signed in</a>
+      </form>
+    </div>
+  </div>
+</div>
+{{end}}
