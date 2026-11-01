@@ -6,12 +6,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"strings"
 
 	"github.com/clidive410/membership/internal/config"
 	"github.com/clidive410/membership/internal/idp"
+	"github.com/sirupsen/logrus"
 )
 
 // stringList is a repeatable string flag.
@@ -226,10 +226,10 @@ func describeEnsure(id string, res *idp.EnsureResult) string {
 
 // ensureWordPressClient runs at server start when OIDC_WORDPRESS_CLIENT_ID
 // is set. Failures are logged, never fatal: the portal must keep serving.
-func ensureWordPressClient(ctx context.Context, cs *idp.ClientStore, getenv config.Getenv, log *slog.Logger) {
+func ensureWordPressClient(ctx context.Context, cs *idp.ClientStore, getenv config.Getenv, log logrus.FieldLogger) {
 	c, err := config.LoadOIDCClient(getenv)
 	if err != nil {
-		log.Error("oidc: WordPress client configuration incomplete; not registered", "err", err)
+		log.WithField("err", err).Error("oidc: WordPress client configuration incomplete; not registered")
 		return
 	}
 	if c == nil {
@@ -241,12 +241,13 @@ func ensureWordPressClient(ctx context.Context, cs *idp.ClientStore, getenv conf
 	}
 	res, err := cs.Ensure(ctx, cliActor, spec)
 	if err != nil {
-		log.Error("oidc: ensuring the WordPress client failed", "client_id", c.ID, "err", err)
+		log.WithFields(logrus.Fields{"client_id": c.ID, "err": err}).Error("oidc: ensuring the WordPress client failed")
 		return
 	}
-	level := slog.LevelInfo
+	entry := log.WithField("client_id", c.ID)
 	if res.Disabled {
-		level = slog.LevelWarn
+		entry.Warn(describeEnsure(c.ID, res))
+	} else {
+		entry.Info(describeEnsure(c.ID, res))
 	}
-	log.Log(ctx, level, describeEnsure(c.ID, res))
 }

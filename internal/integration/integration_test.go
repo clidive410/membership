@@ -14,7 +14,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log/slog"
 	"math/rand/v2"
 	"os"
 	"strings"
@@ -26,6 +25,7 @@ import (
 	"github.com/clidive410/membership/internal/auth"
 	"github.com/clidive410/membership/internal/db"
 	"github.com/clidive410/membership/internal/legacy"
+	"github.com/clidive410/membership/internal/logging"
 	"github.com/clidive410/membership/internal/members"
 )
 
@@ -169,11 +169,11 @@ func setup(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { f.app.Close() })
-	if err := db.Migrate(ctx, f.app, slog.New(slog.DiscardHandler)); err != nil {
+	if err := db.Migrate(ctx, f.app, logging.Discard()); err != nil {
 		t.Fatal(err)
 	}
 	// Migrations are idempotent.
-	if err := db.Migrate(ctx, f.app, slog.New(slog.DiscardHandler)); err != nil {
+	if err := db.Migrate(ctx, f.app, logging.Discard()); err != nil {
 		t.Fatal(err)
 	}
 	return f
@@ -586,7 +586,7 @@ func TestLegacyImportRepairsEncoding(t *testing.T) {
 
 func TestMigrationLock(t *testing.T) {
 	f := setup(t)
-	log := slog.New(slog.DiscardHandler)
+	log := logging.Discard()
 
 	// Another session holds the lock: Migrate gives up after the timeout.
 	holder, err := f.server.Conn(f.ctx)

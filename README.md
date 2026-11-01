@@ -133,7 +133,7 @@ contents are trimmed of surrounding whitespace. If both are set, `NAME` wins.
 | `MIGRATE_ON_START` | `false`                | `true` makes `serve` apply pending migrations before listening, like `serve --migrate`. `AUTO_MIGRATE` is a deprecated alias, used only when `MIGRATE_ON_START` is unset. |
 | `HEALTHCHECK_URL` | (derived)               | Only for `membership healthcheck`: URL to probe instead of `http://127.0.0.1:<port of LISTEN_ADDR><BASE_URL path>/healthz`. |
 | `LOG_LEVEL`      | `info`                   | `debug`, `info`, `warn`, `error`. |
-| `LOG_FORMAT`     | `json`                   | `json` or `text` (log/slog). |
+| `LOG_FORMAT`     | `json`                   | `json` or `text` ([logrus](https://github.com/sirupsen/logrus); libraries that log through `log/slog` are bridged into it). |
 | `MAIL_FROM`      | `membership@clidive.org` | Sender of all emails (sign-in, password reset, invitation): `addr@example.org` or `Name <addr@example.org>`. |
 | `SMTP_HOST`      | (none)                   | SMTP submission server. Unset: emails are logged when `LOG_FORMAT=text` (development); otherwise every send fails with an error saying SMTP is not configured (and `serve` logs an error at start). |
 | `SMTP_PORT`      | `587`                    | `587` uses STARTTLS, `465` implicit TLS. TLS is required (except to a loopback server); the app never falls back to clear text. |

@@ -7,7 +7,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/mail"
 	"net/netip"
 	"net/url"
@@ -15,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 // Config holds the runtime configuration of the service.
@@ -33,8 +34,8 @@ type Config struct {
 	// in (e.g. https://www.clidive.org/). Absolute next= URLs are accepted
 	// only on this URL's scheme and host.
 	LoginReturnURL *url.URL
-	LogLevel       slog.Level // LOG_LEVEL: debug, info, warn, error
-	LogFormat      string     // LOG_FORMAT: json (default) or text
+	LogLevel       logrus.Level // LOG_LEVEL: debug, info, warn, error
+	LogFormat      string       // LOG_FORMAT: json (default) or text
 	// MIGRATE_ON_START: apply pending migrations before serving (default
 	// false; `serve --migrate` forces it). AUTO_MIGRATE is a deprecated alias.
 	MigrateOnStart bool
@@ -274,8 +275,10 @@ func Load(getenv Getenv) (*Config, error) {
 		errs = append(errs, fmt.Errorf("MAIL_FROM must be an address or \"Name <address>\": %w", err))
 	}
 
-	if err := c.LogLevel.UnmarshalText([]byte(get("LOG_LEVEL", "info"))); err != nil {
+	if lvl, err := logrus.ParseLevel(get("LOG_LEVEL", "info")); err != nil {
 		errs = append(errs, fmt.Errorf("LOG_LEVEL: %w", err))
+	} else {
+		c.LogLevel = lvl
 	}
 	for _, v := range strings.Split(get("TRUSTED_PROXIES", ""), ",") {
 		if v = strings.TrimSpace(v); v == "" {

@@ -16,6 +16,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	stdlog "log"
 	"log/slog"
 	"net"
 	"net/http"
@@ -33,9 +34,11 @@ import (
 	"github.com/clidive410/membership/internal/documents"
 	"github.com/clidive410/membership/internal/idp"
 	"github.com/clidive410/membership/internal/legacy"
+	"github.com/clidive410/membership/internal/logging"
 	"github.com/clidive410/membership/internal/mail"
 	"github.com/clidive410/membership/internal/members"
 	"github.com/clidive410/membership/internal/web"
+	"github.com/sirupsen/logrus"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -100,23 +103,32 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	return fmt.Errorf("unknown command %q", cmd)
 }
 
-func newLogger(level slog.Level, format string) *slog.Logger {
-	opts := &slog.HandlerOptions{Level: level}
-	var h slog.Handler = slog.NewJSONHandler(os.Stderr, opts)
-	if format == "text" {
-		h = slog.NewTextHandler(os.Stderr, opts)
-	}
-	return slog.New(h).With("app", "membership")
+// newLogger writes to stderr; every line carries app=membership.
+func newLogger(level logrus.Level, format string) *logrus.Logger {
+	l := logging.New(os.Stderr, level, format)
+	l.AddHook(appHook{})
+	return l
+}
+
+// appHook adds app=membership to every entry.
+type appHook struct{}
+
+func (appHook) Levels() []logrus.Level { return logrus.AllLevels }
+func (appHook) Fire(e *logrus.Entry) error {
+	e.Data["app"] = "membership"
+	return nil
 }
 
 // cliLogger is used by subcommands that only need the database.
-func cliLogger() *slog.Logger {
-	var lvl slog.Level
-	_ = lvl.UnmarshalText([]byte(os.Getenv("LOG_LEVEL")))
+func cliLogger() logrus.FieldLogger {
+	lvl, err := logrus.ParseLevel(os.Getenv("LOG_LEVEL"))
+	if err != nil {
+		lvl = logrus.InfoLevel
+	}
 	return newLogger(lvl, "text")
 }
 
-func openAppDB(ctx context.Context, log *slog.Logger) (*members.Store, *auth.Store, func(), error) {
+func openAppDB(ctx context.Context, log logrus.FieldLogger) (*members.Store, *auth.Store, func(), error) {
 	dsn, err := config.LoadDB(os.Getenv)
 	if err != nil {
 		return nil, nil, nil, err
@@ -146,7 +158,7 @@ func serve(ctx context.Context, args []string) error {
 		cfg.MigrateOnStart = true
 	}
 	log := newLogger(cfg.LogLevel, cfg.LogFormat)
-	slog.SetDefault(log)
+	slog.SetDefault(logging.Slog(log)) // zitadel/oidc logs through slog
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -159,10 +171,9 @@ func serve(ctx context.Context, args []string) error {
 	if cfg.MigrateOnStart {
 		if err := db.Migrate(ctx, conn, log); err != nil {
 			if errors.Is(err, db.ErrLockTimeout) {
-				log.Error("could not obtain the migration lock; another instance is probably still migrating. Exiting without serving.",
-					"lock", db.MigrationLock, "timeout", db.DefaultLockTimeout.String())
+				log.WithFields(logrus.Fields{"lock": db.MigrationLock, "timeout": db.DefaultLockTimeout.String()}).Error("could not obtain the migration lock; another instance is probably still migrating. Exiting without serving.")
 			} else {
-				log.Error("migrations failed; exiting without serving", "err", err)
+				log.WithField("err", err).Error("migrations failed; exiting without serving")
 			}
 			return err
 		}
@@ -174,7 +185,7 @@ func serve(ctx context.Context, args []string) error {
 	}
 	issuer, err := cfg.OIDCIssuer(os.Getenv)
 	if err != nil {
-		log.Warn("oidc: issuer", "err", err)
+		log.WithField("err", err).Warn("oidc: issuer")
 	}
 	provider, err := idp.New(idp.Config{DB: conn, Auth: authStore, SessionSecret: cfg.SessionSecret, Issuer: issuer,
 		BasePath: cfg.BasePath(), Log: log})
@@ -188,7 +199,7 @@ func serve(ctx context.Context, args []string) error {
 	// The library must never stop the portal: a missing or read-only
 	// directory only makes uploads and downloads fail (and is logged).
 	if err := os.MkdirAll(cfg.DocumentsDir, 0o750); err != nil {
-		log.Error("documents: cannot create DOCUMENTS_DIR; uploads and downloads will fail", "dir", cfg.DocumentsDir, "err", err)
+		log.WithFields(logrus.Fields{"dir": cfg.DocumentsDir, "err": err}).Error("documents: cannot create DOCUMENTS_DIR; uploads and downloads will fail")
 	}
 
 	srv := web.New(web.Options{
@@ -217,7 +228,7 @@ func serve(ctx context.Context, args []string) error {
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       120 * time.Second,
-		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
+		ErrorLog:          stdlog.New(log.WriterLevel(logrus.WarnLevel), "", 0),
 	}
 
 	// Housekeeping: purge expired sessions, login tokens and OIDC codes
@@ -227,10 +238,10 @@ func serve(ctx context.Context, args []string) error {
 		defer t.Stop()
 		for {
 			if err := authStore.PurgeExpired(ctx); err != nil && ctx.Err() == nil {
-				log.Warn("purging expired sessions", "err", err)
+				log.WithField("err", err).Warn("purging expired sessions")
 			}
 			if err := provider.Purge(ctx); err != nil && ctx.Err() == nil {
-				log.Warn("purging expired OIDC codes and tokens", "err", err)
+				log.WithField("err", err).Warn("purging expired OIDC codes and tokens")
 			}
 			select {
 			case <-ctx.Done():
@@ -242,7 +253,7 @@ func serve(ctx context.Context, args []string) error {
 
 	errc := make(chan error, 1)
 	go func() {
-		log.Info("listening", "addr", cfg.ListenAddr, "base_url", cfg.BaseURL.String(), "version", version)
+		log.WithFields(logrus.Fields{"addr": cfg.ListenAddr, "base_url": cfg.BaseURL.String(), "version": version}).Info("listening")
 		errc <- httpSrv.ListenAndServe()
 	}()
 	select {
@@ -257,7 +268,7 @@ func serve(ctx context.Context, args []string) error {
 		return fmt.Errorf("graceful shutdown: %w", err)
 	}
 	if err := srv.Wait(shutdownCtx); err != nil {
-		log.Warn("stopped before all sign-in emails were sent", "err", err)
+		log.WithField("err", err).Warn("stopped before all sign-in emails were sent")
 	}
 	if err := <-errc; !errors.Is(err, http.ErrServerClosed) {
 		return err
@@ -269,14 +280,14 @@ func serve(ctx context.Context, args []string) error {
 // newMailer picks how sign-in links are delivered: SMTP when SMTP_HOST is
 // set; otherwise the log in development (LOG_FORMAT=text), and in
 // production a sender that fails every send with a clear error.
-func newMailer(cfg *config.Config, log *slog.Logger) (mail.Sender, error) {
+func newMailer(cfg *config.Config, log logrus.FieldLogger) (mail.Sender, error) {
 	from, err := mail.ParseFrom(cfg.MailFrom)
 	if err != nil {
 		return nil, err
 	}
 	switch {
 	case cfg.SMTPHost != "":
-		log.Info("email via SMTP", "host", cfg.SMTPHost, "port", cfg.SMTPPort, "from", from.Address)
+		log.WithFields(logrus.Fields{"host": cfg.SMTPHost, "port": cfg.SMTPPort, "from": from.Address}).Info("email via SMTP")
 		return &mail.SMTP{Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUsername, Password: cfg.SMTPPassword,
 			From: from, Log: log}, nil
 	case cfg.Development():

@@ -5,13 +5,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log/slog"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	jose "github.com/go-jose/go-jose/v4"
+	"github.com/sirupsen/logrus"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"github.com/zitadel/oidc/v3/pkg/op"
 
@@ -169,7 +169,7 @@ type Storage struct {
 	auth     *auth.Store
 	now      func() time.Time
 	loginURL func(id string) string
-	log      *slog.Logger
+	log      logrus.FieldLogger
 }
 
 var (
@@ -353,7 +353,7 @@ func (s *Storage) AuthRequestByCode(ctx context.Context, code string) (op.AuthRe
 	case err != nil:
 		return nil, serverErr(err)
 	case reused:
-		s.log.Warn("oidc: authorization code reused; tokens of the grant revoked", "client_id", a.ClientID, "user_id", a.UserID)
+		s.log.WithFields(logrus.Fields{"client_id": a.ClientID, "user_id": a.UserID}).Warn("oidc: authorization code reused; tokens of the grant revoked")
 		return nil, errNotFound
 	}
 	return a, nil
@@ -551,7 +551,7 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, token string) 
 		return nil, serverErr(err)
 	}
 	if rotated.Valid {
-		s.log.Warn("oidc: rotated refresh token reused; grant revoked", "client_id", r.clientID, "user_id", r.userID)
+		s.log.WithFields(logrus.Fields{"client_id": r.clientID, "user_id": r.userID}).Warn("oidc: rotated refresh token reused; grant revoked")
 		if _, err := s.db.ExecContext(ctx, "DELETE FROM oidc_tokens WHERE grant_id = ?", r.grantID); err != nil {
 			return nil, serverErr(err)
 		}
@@ -598,7 +598,7 @@ func (s *Storage) RevokeToken(ctx context.Context, tokenOrID, _ string, clientID
 		_, err = s.db.ExecContext(ctx, "DELETE FROM oidc_tokens WHERE token_hash = ? AND kind = 'access' AND client_id = ?", auth.HashToken(tokenOrID), clientID)
 	}
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		s.log.Error("oidc: revoking token", "err", err)
+		s.log.WithField("err", err).Error("oidc: revoking token")
 		return oidc.ErrServerError()
 	}
 	return nil

@@ -11,6 +11,7 @@ import (
 
 	"github.com/clidive410/membership/internal/auth"
 	"github.com/clidive410/membership/internal/members"
+	"github.com/sirupsen/logrus"
 )
 
 // Sign-in link limits.
@@ -83,7 +84,7 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request, userID int
 		return err
 	}
 	s.setSessionCookie(w, token, ttl)
-	s.opt.Log.Info("login", "user_id", userID, "method", method)
+	s.opt.Log.WithFields(logrus.Fields{"user_id": userID, "method": method}).Info("login")
 	return nil
 }
 
@@ -96,7 +97,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	keys := []string{"ip:" + clientIP(r), "email:" + email}
 
 	if s.limiter.Blocked(now, keys...) {
-		s.opt.Log.Warn("login rate limited", "ip", clientIP(r))
+		s.opt.Log.WithField("ip", clientIP(r)).Warn("login rate limited")
 		s.render(w, r, http.StatusTooManyRequests, "login", "Sign in",
 			loginData{Email: email, Next: next, Error: "Too many failed attempts. Please wait 15 minutes and try again."})
 		return
@@ -104,7 +105,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	p, err := s.opt.Auth.Authenticate(r.Context(), email, password)
 	if errors.Is(err, auth.ErrInvalidCredentials) {
 		s.limiter.Fail(now, keys...)
-		s.opt.Log.Info("login failed", "ip", clientIP(r))
+		s.opt.Log.WithField("ip", clientIP(r)).Info("login failed")
 		s.render(w, r, http.StatusUnauthorized, "login", "Sign in", loginData{Email: email, Next: next, Error: "Incorrect email or password."})
 		return
 	} else if err != nil {
@@ -140,7 +141,7 @@ func (s *Server) handleLoginLink(w http.ResponseWriter, r *http.Request) {
 	now := s.opt.Now()
 	ipKey, emailKey := "ip:"+clientIP(r), "email:"+email
 	if s.linkByIP.Blocked(now, ipKey) || s.linkByEmail.Blocked(now, emailKey) {
-		s.opt.Log.Warn("login link rate limited", "ip", clientIP(r))
+		s.opt.Log.WithField("ip", clientIP(r)).Warn("login link rate limited")
 		s.render(w, r, http.StatusTooManyRequests, "login", "Sign in",
 			loginData{LinkEmail: email, Next: next, LinkError: "Too many sign-in link requests. Please wait 15 minutes and try again."})
 		return
@@ -162,14 +163,14 @@ func (s *Server) background(what, reqID string, fn func(ctx context.Context)) {
 	select {
 	case s.sendSem <- struct{}{}:
 	default:
-		s.opt.Log.Warn(what+" dropped: too many requests in flight", "request_id", reqID)
+		s.opt.Log.WithField("request_id", reqID).Warn(what + " dropped: too many requests in flight")
 		return
 	}
 	s.bg.Go(func() {
 		defer func() { <-s.sendSem }()
 		defer func() {
 			if v := recover(); v != nil {
-				s.opt.Log.Error("panic in background "+what, "value", v, "request_id", reqID)
+				s.opt.Log.WithFields(logrus.Fields{"value": v, "request_id": reqID}).Error("panic in background " + what)
 			}
 		}()
 		ctx, cancel := context.WithTimeout(context.Background(), linkSendTimeout)
@@ -185,25 +186,25 @@ func (s *Server) sendLoginLink(email, next, reqID string) {
 		link, err := s.opt.Auth.RequestLoginLink(ctx, email, loginLinkTTL)
 		switch {
 		case errors.Is(err, auth.ErrNoMember):
-			s.opt.Log.Info("login link requested for an address that is not a current member", "request_id", reqID)
+			s.opt.Log.WithField("request_id", reqID).Info("login link requested for an address that is not a current member")
 			return
 		case errors.Is(err, auth.ErrLoginNotAllowed):
-			s.opt.Log.Warn("login link refused: user disabled or linked to a different member", "request_id", reqID)
+			s.opt.Log.WithField("request_id", reqID).Warn("login link refused: user disabled or linked to a different member")
 			return
 		case err != nil:
-			s.opt.Log.Error("issuing login link", "err", err, "request_id", reqID)
+			s.opt.Log.WithFields(logrus.Fields{"err": err, "request_id": reqID}).Error("issuing login link")
 			return
 		}
 		msg, err := loginLinkEmail.message(email, loginLinkData{Link: s.loginLinkURL(link.Token, next), Minutes: int(loginLinkTTL.Minutes())})
 		if err != nil {
-			s.opt.Log.Error("rendering login link email", "err", err, "request_id", reqID)
+			s.opt.Log.WithFields(logrus.Fields{"err": err, "request_id": reqID}).Error("rendering login link email")
 			return
 		}
 		if err := s.opt.Mailer.Send(ctx, msg); err != nil {
-			s.opt.Log.Error("emailing login link failed", "user_id", link.UserID, "err", err, "request_id", reqID)
+			s.opt.Log.WithFields(logrus.Fields{"user_id": link.UserID, "err": err, "request_id": reqID}).Error("emailing login link failed")
 			return
 		}
-		s.opt.Log.Info("login link emailed", "user_id", link.UserID, "request_id", reqID)
+		s.opt.Log.WithFields(logrus.Fields{"user_id": link.UserID, "request_id": reqID}).Info("login link emailed")
 	})
 }
 
@@ -221,7 +222,7 @@ func (s *Server) handleLoginVerify(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	p, err := s.opt.Auth.LoginWithToken(r.Context(), q.Get("token"))
 	if errors.Is(err, auth.ErrInvalidToken) {
-		s.opt.Log.Info("login link invalid or expired", "ip", clientIP(r))
+		s.opt.Log.WithField("ip", clientIP(r)).Info("login link invalid or expired")
 		s.render(w, r, http.StatusBadRequest, "login", "Sign in", loginData{Next: q.Get("next"),
 			LinkError: "This sign-in link has expired or has already been used. Enter your email address to get a new one."})
 		return

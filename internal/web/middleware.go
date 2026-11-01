@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log/slog"
 	"mime"
 	"net"
 	"net/http"
@@ -19,6 +18,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/sirupsen/logrus"
 
 	"github.com/clidive410/membership/internal/auth"
 )
@@ -66,7 +66,7 @@ func (s *Server) loadSession(next http.Handler) http.Handler {
 		for _, c := range copies {
 			p, err := s.opt.Auth.LookupSession(r.Context(), c.Value)
 			if err != nil {
-				s.opt.Log.Error("looking up session", "err", err)
+				s.opt.Log.WithField("err", err).Error("looking up session")
 				continue
 			}
 			if p != nil {
@@ -251,7 +251,7 @@ func (s *Server) checkCSRF(next http.Handler) http.Handler {
 			}
 		}
 		if !valid {
-			s.opt.Log.Warn("csrf check failed", "path", r.URL.Path)
+			s.opt.Log.WithField("path", r.URL.Path).Warn("csrf check failed")
 			// A browser that submitted a token nobody recognises most likely
 			// carries a stale cookie from an earlier cookie scope: drop every
 			// variant so the next page load starts clean, then reload the form.
@@ -297,7 +297,7 @@ func (s *Server) requirePermission(perms map[*mux.Route]auth.Permission) mux.Mid
 			p := principalFrom(r.Context())
 			perm, ok := perms[mux.CurrentRoute(r)]
 			if !ok || !p.Can(perm) {
-				s.opt.Log.Warn("permission denied", "user_id", p.UserID, "perm", perm, "path", r.URL.Path)
+				s.opt.Log.WithFields(logrus.Fields{"user_id": p.UserID, "perm": perm, "path": r.URL.Path}).Warn("permission denied")
 				s.renderError(w, r, http.StatusForbidden, "You do not have permission to do this.")
 				return
 			}
@@ -343,15 +343,14 @@ func (s *Server) logRequests(next http.Handler) http.Handler {
 		if r.URL.Path == "/healthz" || r.URL.Path == s.opt.BasePath+"/healthz" {
 			return
 		}
-		level := slog.LevelInfo
+		level := logrus.InfoLevel
 		switch {
 		case rec.status >= 500:
-			level = slog.LevelError
+			level = logrus.ErrorLevel
 		case r.URL.Path == s.opt.BasePath+verifyPath:
-			level = slog.LevelDebug // forward_auth: one call per WordPress request
+			level = logrus.DebugLevel // forward_auth: one call per WordPress request
 		}
-		s.opt.Log.Log(r.Context(), level, "request", "method", r.Method, "path", r.URL.Path,
-			"status", rec.status, "duration_ms", time.Since(start).Milliseconds(), "request_id", requestIDFrom(r.Context()))
+		s.opt.Log.WithFields(logrus.Fields{"method": r.Method, "path": r.URL.Path, "status": rec.status, "duration_ms": time.Since(start).Milliseconds(), "request_id": requestIDFrom(r.Context())}).Log(level, "request")
 	})
 }
 
@@ -362,7 +361,7 @@ func (s *Server) recoverPanics(next http.Handler) http.Handler {
 				if v == http.ErrAbortHandler {
 					panic(v)
 				}
-				s.opt.Log.Error("panic", "value", v, "request_id", requestIDFrom(r.Context()), "stack", string(debug.Stack()))
+				s.opt.Log.WithFields(logrus.Fields{"value": v, "request_id": requestIDFrom(r.Context()), "stack": string(debug.Stack())}).Error("panic")
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
 			}
 		}()

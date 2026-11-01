@@ -3,12 +3,13 @@ package db
 import (
 	"context"
 	"errors"
-	"io"
-	"log/slog"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/clidive410/membership/internal/logging"
+	"github.com/sirupsen/logrus"
 )
 
 func TestSplitStatements(t *testing.T) {
@@ -78,7 +79,7 @@ func (f *fakeMigrator) Apply(_ context.Context, m migration) error {
 
 var testMigrations = []migration{{version: "0001_a"}, {version: "0002_b"}, {version: "0003_c"}}
 
-func discard() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
+func discard() logrus.FieldLogger { return logging.Discard() }
 
 func TestRunMigrationsAppliesPendingUnderLock(t *testing.T) {
 	f := &fakeMigrator{lockOK: true, done: map[string]bool{"0001_a": true}}

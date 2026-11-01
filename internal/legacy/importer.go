@@ -5,11 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/sirupsen/logrus"
 
+	"github.com/clidive410/membership/internal/logging"
 	"github.com/clidive410/membership/internal/members"
 )
 
@@ -63,7 +64,7 @@ func OpenLegacy(ctx context.Context, dsn string) (*sql.DB, error) {
 type Importer struct {
 	Legacy *sql.DB
 	App    *sql.DB
-	Log    *slog.Logger
+	Log    logrus.FieldLogger
 	Now    func() time.Time
 	DryRun bool // run everything in a transaction and roll back
 }
@@ -79,7 +80,7 @@ func (im *Importer) Run(ctx context.Context) (*Result, error) {
 	}
 	log := im.Log
 	if log == nil {
-		log = slog.New(slog.DiscardHandler)
+		log = logging.Discard()
 	}
 	res := &Result{}
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/clidive410/membership/internal/export"
 	"github.com/clidive410/membership/internal/members"
+	"github.com/sirupsen/logrus"
 )
 
 // handleExportCSV replicates fulllistexport.php: ?status=all exports every
@@ -27,7 +28,7 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := principalFrom(r.Context())
-	s.opt.Log.Info("member export", "user_id", p.UserID, "status", status, "rows", len(ms))
+	s.opt.Log.WithFields(logrus.Fields{"user_id": p.UserID, "status": status, "rows": len(ms)}).Info("member export")
 	name := "clidive-members-" + string(status) + "-" + s.opt.Now().Format("2006-01-02") + ".csv"
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)

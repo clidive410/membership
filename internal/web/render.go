@@ -16,6 +16,7 @@ import (
 	"github.com/clidive410/membership/internal/auth"
 	"github.com/clidive410/membership/internal/documents"
 	"github.com/clidive410/membership/internal/members"
+	"github.com/sirupsen/logrus"
 )
 
 // docAccessLabels names the document access levels in the UI.
@@ -286,7 +287,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name
 	}
 	var buf bytes.Buffer
 	if err := s.pages[name].t.Execute(&buf, pg); err != nil {
-		s.opt.Log.Error("rendering template", "template", name, "err", err)
+		s.opt.Log.WithFields(logrus.Fields{"template": name, "err": err}).Error("rendering template")
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -301,6 +302,6 @@ func (s *Server) renderError(w http.ResponseWriter, r *http.Request, status int,
 }
 
 func (s *Server) serverError(w http.ResponseWriter, r *http.Request, err error) {
-	s.opt.Log.Error("internal error", "path", r.URL.Path, "err", err)
+	s.opt.Log.WithFields(logrus.Fields{"path": r.URL.Path, "err": err}).Error("internal error")
 	s.renderError(w, r, http.StatusInternalServerError, "Something went wrong. Please try again.")
 }

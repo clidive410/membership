@@ -9,12 +9,12 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log/slog"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/sirupsen/logrus"
 )
 
 //go:embed migrations/*.sql
@@ -140,7 +140,7 @@ type migrator interface {
 
 // runMigrations takes the lock, applies every migration not yet recorded, in
 // order, and releases the lock whatever happens.
-func runMigrations(ctx context.Context, m migrator, ms []migration, timeout time.Duration, log *slog.Logger) (err error) {
+func runMigrations(ctx context.Context, m migrator, ms []migration, timeout time.Duration, log logrus.FieldLogger) (err error) {
 	ok, err := m.AcquireLock(ctx, MigrationLock, timeout)
 	if err != nil {
 		return fmt.Errorf("acquiring migration lock: %w", err)
@@ -150,7 +150,7 @@ func runMigrations(ctx context.Context, m migrator, ms []migration, timeout time
 	}
 	defer func() {
 		if rerr := m.ReleaseLock(context.WithoutCancel(ctx), MigrationLock); rerr != nil {
-			log.Warn("releasing migration lock", "err", rerr)
+			log.WithField("err", rerr).Warn("releasing migration lock")
 		}
 	}()
 
@@ -166,26 +166,26 @@ func runMigrations(ctx context.Context, m migrator, ms []migration, timeout time
 		if done {
 			continue
 		}
-		log.Info("applying migration", "version", mig.version)
+		log.WithField("version", mig.version).Info("applying migration")
 		if err := m.Apply(ctx, mig); err != nil {
 			return err
 		}
 		applied++
 	}
-	log.Info("migrations up to date", "applied", applied, "total", len(ms))
+	log.WithFields(logrus.Fields{"applied": applied, "total": len(ms)}).Info("migrations up to date")
 	return nil
 }
 
 // Migrate applies all pending embedded migrations under the MigrationLock,
 // waiting up to DefaultLockTimeout for it.
-func Migrate(ctx context.Context, db *sql.DB, log *slog.Logger) error {
+func Migrate(ctx context.Context, db *sql.DB, log logrus.FieldLogger) error {
 	return MigrateWithTimeout(ctx, db, DefaultLockTimeout, log)
 }
 
 // MigrateWithTimeout is Migrate with an explicit lock timeout (whole seconds).
 // MariaDB DDL is not transactional, so each migration is recorded only after
 // all its statements succeeded.
-func MigrateWithTimeout(ctx context.Context, db *sql.DB, timeout time.Duration, log *slog.Logger) error {
+func MigrateWithTimeout(ctx context.Context, db *sql.DB, timeout time.Duration, log logrus.FieldLogger) error {
 	ms, err := loadMigrations()
 	if err != nil {
 		return err

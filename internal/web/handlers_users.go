@@ -7,6 +7,7 @@ import (
 
 	"github.com/clidive410/membership/internal/auth"
 	"github.com/clidive410/membership/internal/members"
+	"github.com/sirupsen/logrus"
 )
 
 // accessView is one login's portal access, as shown on the member page
@@ -206,10 +207,10 @@ func (s *Server) changeAccess(w http.ResponseWriter, r *http.Request, email stri
 		err = s.opt.Mailer.Send(r.Context(), msg)
 	}
 	if err != nil {
-		s.opt.Log.Error("emailing invitation failed", "user_id", inv.UserID, "err", err)
+		s.opt.Log.WithFields(logrus.Fields{"user_id": inv.UserID, "err": err}).Error("emailing invitation failed")
 		done("invite-failed")
 		return
 	}
-	s.opt.Log.Info("invitation emailed", "user_id", inv.UserID, "by", p.UserID)
+	s.opt.Log.WithFields(logrus.Fields{"user_id": inv.UserID, "by": p.UserID}).Info("invitation emailed")
 	done("invite-sent")
 }

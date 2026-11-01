@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/sirupsen/logrus"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 
 	"github.com/clidive410/membership/internal/auth"
@@ -181,7 +182,7 @@ func (s *Server) handleOIDCContinue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := st.Allowed(r.Context(), a.UserID, a.AuthMethod); idp.IsNotAllowed(err) {
-		s.opt.Log.Info("oidc: sign-in refused", "user_id", a.UserID, "client_id", a.ClientID)
+		s.opt.Log.WithFields(logrus.Fields{"user_id": a.UserID, "client_id": a.ClientID}).Info("oidc: sign-in refused")
 		p.Fail(w, r, a, oidc.ErrAccessDenied().WithDescription("this account may not sign in to this site"))
 		return
 	} else if err != nil {
@@ -223,7 +224,7 @@ func (s *Server) handleOIDCContinue(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.opt.Log.Info("oidc: authorized", "user_id", a.UserID, "client_id", a.ClientID)
+	s.opt.Log.WithFields(logrus.Fields{"user_id": a.UserID, "client_id": a.ClientID}).Info("oidc: authorized")
 	p.Respond(w, r, a)
 }
 
@@ -317,7 +318,7 @@ func (s *Server) limitToken(next http.HandlerFunc) http.HandlerFunc {
 		ipKey := "ip:" + clientIP(r)
 		clientKey := "client:" + clientID + "|" + ipKey
 		if s.tokenByClient.Blocked(now, clientKey) || s.tokenFailures.Blocked(now, ipKey) {
-			s.opt.Log.Warn("oidc: token endpoint rate limited", "ip", clientIP(r), "path", r.URL.Path)
+			s.opt.Log.WithFields(logrus.Fields{"ip": clientIP(r), "path": r.URL.Path}).Warn("oidc: token endpoint rate limited")
 			w.Header().Set("Retry-After", "60")
 			writeOAuthError(w, http.StatusTooManyRequests, "temporarily_unavailable", "too many requests, try again later")
 			return

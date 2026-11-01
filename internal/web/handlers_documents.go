@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/sirupsen/logrus"
 
 	"github.com/clidive410/membership/internal/auth"
 	"github.com/clidive410/membership/internal/documents"
@@ -258,7 +259,7 @@ func (s *Server) handleDocumentDownload(w http.ResponseWriter, r *http.Request) 
 	}
 	f, err := s.opt.DocumentFiles.Open(doc.StoredName)
 	if err != nil {
-		s.opt.Log.Error("opening document file", "document_id", doc.ID, "err", err)
+		s.opt.Log.WithFields(logrus.Fields{"document_id": doc.ID, "err": err}).Error("opening document file")
 		s.renderError(w, r, http.StatusNotFound, "This file is not available. Please tell the committee.")
 		return
 	}
@@ -269,7 +270,7 @@ func (s *Server) handleDocumentDownload(w http.ResponseWriter, r *http.Request) 
 			a = p.Actor()
 		}
 		if err := s.opt.Documents.RecordDownload(ctx, a, doc.ID); err != nil {
-			s.opt.Log.Warn("recording download", "document_id", doc.ID, "err", err)
+			s.opt.Log.WithFields(logrus.Fields{"document_id": doc.ID, "err": err}).Warn("recording download")
 		}
 	}
 	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(longRequestTimeout))
@@ -725,7 +726,7 @@ func (s *Server) handleDocReplace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.opt.DocumentFiles.Remove(old); err != nil {
-		s.opt.Log.Warn("removing replaced document file", "document_id", d.ID, "err", err)
+		s.opt.Log.WithFields(logrus.Fields{"document_id": d.ID, "err": err}).Warn("removing replaced document file")
 	}
 	http.Redirect(w, r, s.url(fmt.Sprintf("/admin/documents/%d?flash=doc-replaced", d.ID)), http.StatusSeeOther)
 }

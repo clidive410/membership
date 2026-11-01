@@ -3,7 +3,6 @@ package web
 import (
 	"bytes"
 	"context"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -14,7 +13,9 @@ import (
 	"time"
 
 	"github.com/clidive410/membership/internal/auth"
+	"github.com/clidive410/membership/internal/logging"
 	"github.com/clidive410/membership/internal/mail"
+	"github.com/sirupsen/logrus"
 )
 
 // fakeSender records messages instead of sending them.
@@ -337,7 +338,7 @@ func TestLoginLinkMailFailureStaysNeutral(t *testing.T) {
 	var logs bytes.Buffer
 	e := newEnv(t, "", func(o *Options) {
 		o.Mailer = mail.Unconfigured{}
-		o.Log = slog.New(slog.NewTextHandler(&logs, nil))
+		o.Log = logging.New(&logs, logrus.DebugLevel, "text")
 	})
 	w := e.do(t, "POST", "/login/link", "", url.Values{"email": {"ada@example.org"}})
 	e.wait(t)

@@ -13,7 +13,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log/slog"
 	"mime"
 	"mime/quotedprintable"
 	"net"
@@ -22,6 +21,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 // Message is one email to one recipient.
@@ -49,11 +50,11 @@ func (Unconfigured) Send(context.Context, Message) error { return ErrNotConfigur
 
 // LogSender is for local development only: instead of sending, it logs the
 // whole message (including any sign-in link) at INFO level.
-type LogSender struct{ Log *slog.Logger }
+type LogSender struct{ Log logrus.FieldLogger }
 
 // Send implements Sender.
 func (l LogSender) Send(_ context.Context, m Message) error {
-	l.Log.Info("email not sent (SMTP not configured; development only)", "to", m.To, "subject", m.Subject, "body", m.Text)
+	l.Log.WithFields(logrus.Fields{"to": m.To, "subject": m.Subject, "body": m.Text}).Info("email not sent (SMTP not configured; development only)")
 	return nil
 }
 
@@ -65,7 +66,7 @@ type SMTP struct {
 	Password string
 	From     *mail.Address
 	Timeout  time.Duration // whole conversation; default 30s
-	Log      *slog.Logger
+	Log      logrus.FieldLogger
 
 	// tlsConfig overrides the TLS configuration (tests only).
 	tlsConfig *tls.Config
@@ -123,9 +124,9 @@ func (s *SMTP) Send(ctx context.Context, m Message) (err error) {
 		// Recipient domain only: the full address is personal data.
 		domain := m.To[strings.LastIndexByte(m.To, '@')+1:]
 		if err != nil {
-			s.Log.Error("email send failed", "to_domain", domain, "subject", m.Subject, "err", err)
+			s.Log.WithFields(logrus.Fields{"to_domain": domain, "subject": m.Subject, "err": err}).Error("email send failed")
 		} else {
-			s.Log.Info("email sent", "to_domain", domain, "subject", m.Subject, "duration_ms", time.Since(start).Milliseconds())
+			s.Log.WithFields(logrus.Fields{"to_domain": domain, "subject": m.Subject, "duration_ms": time.Since(start).Milliseconds()}).Info("email sent")
 		}
 	}()
 

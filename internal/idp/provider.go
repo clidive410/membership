@@ -18,17 +18,18 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"github.com/zitadel/oidc/v3/pkg/op"
 
 	"github.com/clidive410/membership/internal/auth"
+	"github.com/clidive410/membership/internal/logging"
 )
 
 // Endpoint paths, relative to the issuer (BASE_URL).
@@ -57,7 +58,7 @@ type Config struct {
 	// unless it is on localhost or a loopback address.
 	Issuer   string
 	BasePath string // path prefix of the issuer ("" at the root)
-	Log      *slog.Logger
+	Log      logrus.FieldLogger
 	Now      func() time.Time
 }
 
@@ -68,13 +69,13 @@ type Provider struct {
 	keys    *KeyStore
 	clients *ClientStore
 	issuer  string
-	log     *slog.Logger
+	log     logrus.FieldLogger
 }
 
 // New builds the provider. It does not touch the database.
 func New(cfg Config) (*Provider, error) {
 	if cfg.Log == nil {
-		cfg.Log = slog.New(slog.DiscardHandler)
+		cfg.Log = logging.Discard()
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now

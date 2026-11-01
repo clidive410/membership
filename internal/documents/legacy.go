@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log/slog"
 	"os"
 	"path"
 	"path/filepath"
@@ -17,7 +16,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/clidive410/membership/internal/logging"
 	"github.com/clidive410/membership/internal/members"
+	"github.com/sirupsen/logrus"
 )
 
 // ImportActor is the audit-log actor of the legacy import.
@@ -197,7 +198,7 @@ type Importer struct {
 	Files    Files   // DOCUMENTS_DIR
 	FilesDir string  // legacy wp-content/uploads/filebase
 	DryRun   bool    // check everything, write nothing
-	Log      *slog.Logger
+	Log      logrus.FieldLogger
 }
 
 // ImportResult summarises a run (counts and legacy ids only).
@@ -215,7 +216,7 @@ type ImportResult struct {
 // the commit and removed again if it fails; a dry run copies nothing.
 func (im *Importer) Run(ctx context.Context, cats []LegacyCategory, files []LegacyFile) (res ImportResult, err error) {
 	if im.Log == nil {
-		im.Log = slog.New(slog.DiscardHandler)
+		im.Log = logging.Discard()
 	}
 	res.ByAccess = map[Access]int{}
 	var copied []string
@@ -246,7 +247,7 @@ func (im *Importer) Run(ctx context.Context, cats []LegacyCategory, files []Lega
 		if id, ok := catIDs[f.Category]; ok {
 			cat = sql.NullInt64{Int64: id, Valid: true}
 		} else if f.Category != 0 {
-			im.Log.Warn("legacy file in an unknown category: imported at the top level", "file_id", f.ID, "cat_id", f.Category)
+			im.Log.WithFields(logrus.Fields{"file_id": f.ID, "cat_id": f.Category}).Warn("legacy file in an unknown category: imported at the top level")
 		}
 		d, stored, err := im.importFile(ctx, tx, f, cat, &res)
 		if err != nil {
@@ -394,12 +395,12 @@ func (im *Importer) importFile(ctx context.Context, tx *sql.Tx, f LegacyFile, ca
 func (im *Importer) copyFile(f LegacyFile, res *ImportResult) (Saved, bool, error) {
 	src, ok := im.source(f.Path)
 	if !ok {
-		im.Log.Warn("legacy file path outside the files directory", "file_id", f.ID)
+		im.Log.WithField("file_id", f.ID).Warn("legacy file path outside the files directory")
 		return Saved{}, false, nil
 	}
 	st, err := os.Stat(src)
 	if errors.Is(err, fs.ErrNotExist) || (err == nil && !st.Mode().IsRegular()) {
-		im.Log.Warn("legacy file missing", "file_id", f.ID)
+		im.Log.WithField("file_id", f.ID).Warn("legacy file missing")
 		return Saved{}, false, nil
 	} else if err != nil {
 		return Saved{}, false, err
@@ -428,7 +429,7 @@ func (im *Importer) copyFile(f LegacyFile, res *ImportResult) (Saved, bool, erro
 		return Saved{}, false, fmt.Errorf("copy verification failed (err=%v)", err)
 	}
 	if saved.Size != f.Size || (f.MD5 != "" && !strings.EqualFold(hex.EncodeToString(sum.Sum(nil)), f.MD5)) {
-		im.Log.Warn("legacy file differs from the catalogue (size or md5); imported as found", "file_id", f.ID)
+		im.Log.WithField("file_id", f.ID).Warn("legacy file differs from the catalogue (size or md5); imported as found")
 		res.Mismatched = append(res.Mismatched, f.ID)
 	}
 	res.FilesCopied++

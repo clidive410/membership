@@ -5,7 +5,6 @@ package web
 import (
 	"context"
 	"embed"
-	"log/slog"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -15,10 +14,12 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/sirupsen/logrus"
 
 	"github.com/clidive410/membership/internal/auth"
 	"github.com/clidive410/membership/internal/documents"
 	"github.com/clidive410/membership/internal/idp"
+	"github.com/clidive410/membership/internal/logging"
 	"github.com/clidive410/membership/internal/mail"
 	"github.com/clidive410/membership/internal/members"
 )
@@ -77,7 +78,7 @@ type AuthStore interface {
 type Options struct {
 	Members       MemberStore
 	Auth          AuthStore
-	Log           *slog.Logger
+	Log           logrus.FieldLogger
 	SessionSecret []byte
 	BasePath      string // e.g. "/membership", "" for root
 	CookieSecure  bool
@@ -132,7 +133,7 @@ type Server struct {
 // New builds a Server; it panics if the embedded templates do not parse.
 func New(opt Options) *Server {
 	if opt.Log == nil {
-		opt.Log = slog.New(slog.DiscardHandler)
+		opt.Log = logging.Discard()
 	}
 	if opt.Now == nil {
 		opt.Now = time.Now
@@ -314,7 +315,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	if err := s.opt.Members.Ping(ctx); err != nil {
-		s.opt.Log.Warn("health check failed", "err", err)
+		s.opt.Log.WithField("err", err).Warn("health check failed")
 		w.WriteHeader(http.StatusServiceUnavailable)
 		w.Write([]byte("database unavailable\n"))
 		return
@@ -382,7 +383,7 @@ func (s *Server) handleVerify(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookie); err == nil && c.Value != "" {
 		st, err := s.opt.Auth.VerifySession(r.Context(), c.Value)
 		if err != nil {
-			s.opt.Log.Error("verify: looking up session", "err", err)
+			s.opt.Log.WithField("err", err).Error("verify: looking up session")
 		} else if status, ok := verifyStatus(st, s.opt.Now()); ok {
 			h.Set(headerMember, "1")
 			h.Set(headerMemberStatus, status)

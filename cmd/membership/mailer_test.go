@@ -1,15 +1,15 @@
 package main
 
 import (
-	"log/slog"
 	"testing"
 
 	"github.com/clidive410/membership/internal/config"
+	"github.com/clidive410/membership/internal/logging"
 	"github.com/clidive410/membership/internal/mail"
 )
 
 func TestNewMailer(t *testing.T) {
-	log := slog.New(slog.DiscardHandler)
+	log := logging.Discard()
 	for _, c := range []struct {
 		cfg  config.Config
 		want string

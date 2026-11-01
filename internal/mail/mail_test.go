@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/base64"
 	"io"
-	"log/slog"
 	"mime"
 	"mime/multipart"
 	"net"
@@ -14,6 +13,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/clidive410/membership/internal/logging"
+	"github.com/sirupsen/logrus"
 )
 
 func TestParseFrom(t *testing.T) {
@@ -182,7 +184,7 @@ func TestSMTPSend(t *testing.T) {
 	from, _ := ParseFrom("Clidive <membership@clidive.org>")
 	var logs strings.Builder
 	s := &SMTP{Host: "127.0.0.1", Port: f.port(), Username: "user", Password: "secret-pw", From: from,
-		Log: slog.New(slog.NewTextHandler(&logs, nil))}
+		Log: logging.New(&logs, logrus.DebugLevel, "text")}
 	err := s.Send(context.Background(), Message{To: "diver@example.org", Subject: "Hi", Text: "Body text"})
 	if err != nil {
 		t.Fatal(err)

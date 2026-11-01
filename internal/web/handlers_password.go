@@ -8,6 +8,7 @@ import (
 
 	"github.com/clidive410/membership/internal/auth"
 	"github.com/clidive410/membership/internal/members"
+	"github.com/sirupsen/logrus"
 )
 
 // passwordResetTTL is the validity of a "Forgotten your password?" link.
@@ -45,7 +46,7 @@ func (s *Server) handleForgot(w http.ResponseWriter, r *http.Request) {
 	now := s.opt.Now()
 	ipKey, emailKey := "ip:"+clientIP(r), "email:"+email
 	if s.resetByIP.Blocked(now, ipKey) || s.resetByEmail.Blocked(now, emailKey) {
-		s.opt.Log.Warn("password reset rate limited", "ip", clientIP(r))
+		s.opt.Log.WithField("ip", clientIP(r)).Warn("password reset rate limited")
 		s.render(w, r, http.StatusTooManyRequests, "forgot", "Forgotten password",
 			forgotData{Email: email, Error: "Too many password reset requests. Please wait 15 minutes and try again."})
 		return
@@ -57,28 +58,28 @@ func (s *Server) handleForgot(w http.ResponseWriter, r *http.Request) {
 		link, err := s.opt.Auth.RequestPasswordReset(ctx, email, passwordResetTTL)
 		switch {
 		case errors.Is(err, auth.ErrNoResetUser):
-			s.opt.Log.Info("password reset requested for an address without a committee or password login", "request_id", reqID)
+			s.opt.Log.WithField("request_id", reqID).Info("password reset requested for an address without a committee or password login")
 			return
 		case err != nil:
-			s.opt.Log.Error("issuing password reset link", "err", err, "request_id", reqID)
+			s.opt.Log.WithFields(logrus.Fields{"err": err, "request_id": reqID}).Error("issuing password reset link")
 			return
 		}
 		msg, err := passwordResetEmail.message(email, resetData{Link: PasswordResetURL(s.opt.PublicURL, link.Token), Minutes: int(passwordResetTTL.Minutes())})
 		if err != nil {
-			s.opt.Log.Error("rendering password reset email", "err", err, "request_id", reqID)
+			s.opt.Log.WithFields(logrus.Fields{"err": err, "request_id": reqID}).Error("rendering password reset email")
 			return
 		}
 		if err := s.opt.Mailer.Send(ctx, msg); err != nil {
-			s.opt.Log.Error("emailing password reset link failed", "user_id", link.UserID, "err", err, "request_id", reqID)
+			s.opt.Log.WithFields(logrus.Fields{"user_id": link.UserID, "err": err, "request_id": reqID}).Error("emailing password reset link failed")
 			return
 		}
-		s.opt.Log.Info("password reset link emailed", "user_id", link.UserID, "request_id", reqID)
+		s.opt.Log.WithFields(logrus.Fields{"user_id": link.UserID, "request_id": reqID}).Info("password reset link emailed")
 	})
 	s.render(w, r, http.StatusOK, "forgot", "Check your email", forgotData{Sent: true})
 }
 
 func (s *Server) renderResetInvalid(w http.ResponseWriter, r *http.Request) {
-	s.opt.Log.Info("password reset link invalid or expired", "ip", clientIP(r))
+	s.opt.Log.WithField("ip", clientIP(r)).Info("password reset link invalid or expired")
 	s.render(w, r, http.StatusBadRequest, "reset", "Set your password", resetFormData{Invalid: true})
 }
 
@@ -130,7 +131,7 @@ func (s *Server) handleReset(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err)
 		return
 	}
-	s.opt.Log.Info("password set from a reset link", "user_id", p.UserID)
+	s.opt.Log.WithField("user_id", p.UserID).Info("password set from a reset link")
 	if err := s.startSession(w, r, p.UserID, auth.LoginMethodPassword, s.opt.SessionTTL); err != nil {
 		s.serverError(w, r, err)
 		return
