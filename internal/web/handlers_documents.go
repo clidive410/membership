@@ -348,6 +348,7 @@ type docAdminData struct {
 	Count      int
 	Query      string
 	Cat        string // filter: category id, "none" or ""
+	CatID      int64  // the filtered category, when Cat names one
 	Archived   bool   // show archived documents only
 	MaxMB      int64
 	Extensions string
@@ -368,6 +369,9 @@ func (s *Server) docAdminPage(w http.ResponseWriter, r *http.Request, status int
 		Error: errMsg, Levels: append(slices.Clone(documents.Levels), documents.Inherit)}
 	if errMsg != "" {
 		d.Form = r.PostForm
+	}
+	if id, err := strconv.ParseInt(d.Cat, 10, 64); err == nil && lib.Category(id) != nil {
+		d.CatID = id
 	}
 	var rows []docRow
 	for i := range lib.Documents {

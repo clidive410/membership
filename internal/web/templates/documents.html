@@ -1,6 +1,6 @@
 {{define "heading"}}{{if .Data.Current}}{{.Data.Current.Name}}{{else}}Documents{{end}}{{end}}
 {{define "pretitle"}}{{if .Data.Current}}<div class="page-pretitle"><a href="{{url "/documents"}}">Documents</a>{{range .Data.Path}}{{if ne .ID $.Data.Current.ID}} › <a href="{{url "/documents"}}?cat={{.Slug}}">{{.Name}}</a>{{end}}{{end}}</div>{{end}}{{end}}
-{{define "actions"}}{{if permit .P "documents.manage"}}<a class="btn btn-outline-secondary" href="{{url "/admin/documents"}}">Manage documents</a>{{end}}{{end}}
+{{define "actions"}}{{if permit .P "documents.manage"}}<a class="btn btn-outline-secondary" href="{{url "/admin/documents"}}{{with .Data.Current}}?cat={{.ID}}{{end}}">Manage {{if .Data.Current}}this category{{else}}documents{{end}}</a>{{end}}{{end}}
 
 {{define "doctree"}}<ul class="doc-tree">{{range .}}<li>
   {{- if .Children}}<details{{if .Open}} open{{end}}><summary>{{template "doclink" .}}</summary>{{template "doctree" .Children}}</details>

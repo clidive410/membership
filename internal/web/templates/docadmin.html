@@ -1,3 +1,4 @@
+{{define "actions"}}{{with .Data.CatID}}<a class="btn btn-outline-secondary" href="{{url "/admin/documents/categories/"}}{{.}}">Edit category</a>{{end}}{{end}}
 {{define "subtitle"}}<div class="page-subtitle">Categories, uploads and who can see what. <a href="{{url "/documents"}}">View the library</a></div>{{end}}
 
 {{/* accesssel: Name, ID, Levels, Value */}}

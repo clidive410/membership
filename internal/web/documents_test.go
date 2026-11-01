@@ -306,6 +306,14 @@ func TestDocumentsManagePermissions(t *testing.T) {
 			t.Errorf("member POST %s: %d", path, w.Code)
 		}
 	}
+	w := e.do(t, "GET", "/documents?cat=committee-papers", e.fa.session("manager@example.org"), nil)
+	if !strings.Contains(w.Body.String(), `href="/admin/documents?cat=3"`) {
+		t.Error("a category page should link to managing that category")
+	}
+	w = e.do(t, "GET", "/admin/documents?cat=3", e.fa.session("manager@example.org"), nil)
+	if !strings.Contains(w.Body.String(), `href="/admin/documents/categories/3"`) || !strings.Contains(w.Body.String(), "Minutes secret") || strings.Contains(w.Body.String(), "Welcome pack") {
+		t.Error("filtered manage list")
+	}
 	if w := e.do(t, "GET", "/admin/documents", "", nil); w.Code != 303 {
 		t.Errorf("visitor: %d", w.Code)
 	}
