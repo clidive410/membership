@@ -729,7 +729,7 @@ All variables are described under [Configuration](#configuration).
 
 Replicated:
 
-- The "current" list shows non-archived members, including the Lapsed type.
+- The "current" list (the default) shows non-archived members whose Clidive expiry is empty or today or later, including the Lapsed type. "Clidive expired" lists the rest; "Current and expired" is everyone not archived (the payments page uses it, since renewals are recorded there).
   "All" also includes archived members. Columns are sortable, default sort is
   last name.
 - Archive is a soft delete. Archived members drop off mailing lists and stay

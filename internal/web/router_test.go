@@ -158,7 +158,7 @@ func TestMemberListPaginates(t *testing.T) {
 		e.fm.add(members.Member{FirstName: "Pat", LastName: fmt.Sprintf("Page%03d", i), Email1: fmt.Sprintf("p%d@example.org", i)})
 	}
 	tok := e.fa.session("admin@example.org")
-	body := e.do(t, "GET", "/admin/members?sort=last_name&page=2", tok, nil).Body.String()
+	body := e.do(t, "GET", "/admin/members?status=notarchived&sort=last_name&page=2", tok, nil).Body.String()
 	if !strings.Contains(body, "Showing <strong>51–100</strong> of <strong>122</strong>") || !strings.Contains(body, `aria-current="page">2</a>`) {
 		t.Error("page 2 not rendered")
 	}

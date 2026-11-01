@@ -66,11 +66,19 @@ func (f *fakeMembers) ListMembers(_ context.Context, flt members.Filter) ([]memb
 			}
 		case members.StatusAll:
 		case members.StatusNotLapsed:
-			if m.Archived() || m.TypeID.Int64 == members.TypeLapsed {
+			if m.Archived() || m.Expired(flt.Today) || m.TypeID.Int64 == members.TypeLapsed {
+				continue
+			}
+		case members.StatusExpired:
+			if m.Archived() || !m.Expired(flt.Today) {
+				continue
+			}
+		case members.StatusNotArchived:
+			if m.Archived() {
 				continue
 			}
 		default:
-			if m.Archived() {
+			if m.Archived() || m.Expired(flt.Today) {
 				continue
 			}
 		}
