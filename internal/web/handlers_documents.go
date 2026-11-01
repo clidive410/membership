@@ -342,7 +342,8 @@ func flatten(lib *documents.Library) []catOption {
 }
 
 type docAdminData struct {
-	Categories []catOption
+	Categories []catOption // every folder, for the selects
+	Folders    []catOption // the folders table: all, or the open folder's subfolders
 	Docs       []docRow
 	Pager      pager
 	Count      int
@@ -373,6 +374,16 @@ func (s *Server) docAdminPage(w http.ResponseWriter, r *http.Request, status int
 	}
 	if id, err := strconv.ParseInt(d.Cat, 10, 64); err == nil && lib.Category(id) != nil {
 		d.CatID, d.CatName = id, lib.Category(id).Name
+	}
+	d.Folders = d.Categories
+	if d.CatID != 0 {
+		d.Folders = nil
+		for _, o := range d.Categories {
+			if o.C.ParentID.Valid && o.C.ParentID.Int64 == d.CatID {
+				o.Label = o.C.Name
+				d.Folders = append(d.Folders, o)
+			}
+		}
 	}
 	var rows []docRow
 	for i := range lib.Documents {

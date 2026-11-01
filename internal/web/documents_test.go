@@ -428,6 +428,10 @@ func TestCategoryManage(t *testing.T) {
 		t.Error("a new folder on a filtered page goes inside that folder")
 	}
 	c := e.fd.cats[len(e.fd.cats)-1]
+	w := e.do(t, "GET", "/admin/documents?cat=3", mgr, nil)
+	if body := w.Body.String(); !strings.Contains(body, "Subfolders") || !strings.Contains(body, `href="/admin/documents/categories/`+itoa(c.ID)+`">AGM 2026<`) || strings.Contains(body, `href="/admin/documents/categories/1">`) {
+		t.Error("a folder's manage view lists only its subfolders")
+	}
 	if c.Name != "AGM 2026" || c.ParentID.Int64 != 3 || c.SortOrder != 5 {
 		t.Errorf("created: %+v", c)
 	}

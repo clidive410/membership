@@ -81,18 +81,16 @@
 
   <div class="col-12">
     <section class="card" aria-labelledby="cats-h">
-      <details{{if not $d.Cat}} open{{end}}>
-      <summary class="card-header"><h2 class="card-title" id="cats-h">Folders</h2><span class="card-actions text-secondary small">{{len $d.Categories}}</span></summary>
-      {{if $d.Categories}}<div class="table-responsive"><table class="table table-vcenter card-table table-sm">
+      <div class="card-header"><h2 class="card-title" id="cats-h">{{if $d.CatID}}Subfolders{{else}}Folders{{end}}</h2><span class="card-actions text-secondary small">{{len $d.Folders}}</span></div>
+      {{if $d.Folders}}<div class="table-responsive"><table class="table table-vcenter card-table table-sm">
         <thead><tr><th scope="col">Name</th><th scope="col">Who can see it</th><th scope="col" class="text-end">Order</th><th scope="col" class="text-end">Documents</th></tr></thead>
-        <tbody>{{range $d.Categories}}<tr>
+        <tbody>{{range $d.Folders}}<tr>
           <td><a href="{{url "/admin/documents/categories/"}}{{.ID}}">{{.Label}}</a>{{if .Archived}} <span class="badge bg-secondary-lt">archived</span>{{end}}</td>
           <td>{{docAccess .Access}}</td>
           <td class="num text-end">{{.C.SortOrder}}</td>
           <td class="num text-end"><a href="{{url "/admin/documents"}}?cat={{.ID}}">{{.Docs}}</a></td>
         </tr>{{end}}</tbody>
-      </table></div>{{else}}<div class="card-body text-secondary">No folders yet.</div>{{end}}
-      </details>
+      </table></div>{{else}}<div class="card-body text-secondary">{{if $d.CatID}}No subfolders.{{else}}No folders yet.{{end}}</div>{{end}}
     </section>
   </div>
 
