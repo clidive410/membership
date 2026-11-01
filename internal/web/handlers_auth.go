@@ -58,6 +58,10 @@ func (s *Server) handleLoginForm(w http.ResponseWriter, r *http.Request) {
 	next := r.URL.Query().Get("next")
 	p := principalFrom(r.Context())
 	switch {
+	case p != nil && s.safeNext(next) != "":
+		// Already signed in (for example coming back to /oauth/authorize).
+		http.Redirect(w, r, s.safeNext(next), http.StatusSeeOther)
+		return
 	case p.Can(auth.PermViewMembers):
 		http.Redirect(w, r, cmp.Or(s.safeNext(next), s.url("/admin/members")), http.StatusSeeOther)
 		return
@@ -238,7 +242,7 @@ func (s *Server) handleLoginVerify(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookie); err == nil && c.Value != "" {
-		if err := s.opt.Auth.DeleteSession(r.Context(), c.Value); err != nil {
+		if err := s.opt.Auth.Logout(r.Context(), c.Value); err != nil {
 			s.serverError(w, r, err)
 			return
 		}

@@ -29,7 +29,7 @@ var cliActor = members.Actor{Label: "cli"}
 func parseInvite(args []string) (auth.InviteRequest, error) {
 	fs := flag.NewFlagSet("user invite", flag.ContinueOnError)
 	email := fs.String("email", "", "email of the committee member (login identity)")
-	role := fs.String("role", "", "admin or membership_manager")
+	role := fs.String("role", "", "admin, membership_manager or editor (website editor)")
 	memberID := fs.Int64("member-id", 0, "member record to link (default: the one current member with this primary email, if any)")
 	if err := fs.Parse(args); err != nil {
 		return auth.InviteRequest{}, err
@@ -38,8 +38,8 @@ func parseInvite(args []string) (auth.InviteRequest, error) {
 		return auth.InviteRequest{}, errors.New("-email is required")
 	}
 	r := auth.Role(*role)
-	if r != auth.RoleAdmin && r != auth.RoleMembershipManager {
-		return auth.InviteRequest{}, errors.New("-role must be admin or membership_manager")
+	if r != auth.RoleAdmin && r != auth.RoleMembershipManager && r != auth.RoleEditor {
+		return auth.InviteRequest{}, errors.New("-role must be admin, membership_manager or editor")
 	}
 	if *memberID < 0 {
 		return auth.InviteRequest{}, errors.New("-member-id must be positive")

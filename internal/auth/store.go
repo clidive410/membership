@@ -93,7 +93,8 @@ func (s *Store) EnsureUser(ctx context.Context, email string) (int64, error) {
 	return id, err
 }
 
-// SetPassword sets (or replaces) a user's password and revokes their sessions.
+// SetPassword sets (or replaces) a user's password and revokes their
+// sessions and OpenID Connect tokens.
 func (s *Store) SetPassword(ctx context.Context, userID int64, password string) error {
 	hash, err := HashPassword(password)
 	if err != nil {
@@ -102,20 +103,52 @@ func (s *Store) SetPassword(ctx context.Context, userID int64, password string) 
 	if _, err := s.DB.ExecContext(ctx, "UPDATE users SET password_hash = ?, disabled = FALSE WHERE id = ?", hash, userID); err != nil {
 		return err
 	}
-	_, err = s.DB.ExecContext(ctx, "DELETE FROM sessions WHERE user_id = ?", userID)
-	return err
+	if _, err = s.DB.ExecContext(ctx, "DELETE FROM sessions WHERE user_id = ?", userID); err != nil {
+		return err
+	}
+	return revokeOIDCForUser(ctx, s.DB, userID)
 }
 
-// SetDisabled enables or disables a user (disabling revokes sessions).
+// SetDisabled enables or disables a user (disabling revokes sessions and
+// OpenID Connect tokens).
 func (s *Store) SetDisabled(ctx context.Context, userID int64, disabled bool) error {
 	if _, err := s.DB.ExecContext(ctx, "UPDATE users SET disabled = ? WHERE id = ?", disabled, userID); err != nil {
 		return err
 	}
 	if disabled {
-		_, err := s.DB.ExecContext(ctx, "DELETE FROM sessions WHERE user_id = ?", userID)
-		return err
+		if _, err := s.DB.ExecContext(ctx, "DELETE FROM sessions WHERE user_id = ?", userID); err != nil {
+			return err
+		}
+		return revokeOIDCForUser(ctx, s.DB, userID)
 	}
 	return nil
+}
+
+// revokeOIDCForUser deletes every OpenID Connect token and pending
+// authorization of a user, so that relying parties can neither refresh
+// nor call userinfo for them any more.
+func revokeOIDCForUser(ctx context.Context, db execer, userID int64) error {
+	if _, err := db.ExecContext(ctx, "DELETE FROM oidc_tokens WHERE user_id = ?", userID); err != nil {
+		return err
+	}
+	_, err := db.ExecContext(ctx, "DELETE FROM oidc_authorizations WHERE user_id = ?", userID)
+	return err
+}
+
+// Logout ends a portal session and revokes the OpenID Connect tokens that
+// were issued while it was signed in (see oidc_tokens.session_hash).
+func (s *Store) Logout(ctx context.Context, token string) error {
+	h := HashToken(token)
+	return s.inTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM sessions WHERE token_hash = ?", h); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "DELETE FROM oidc_tokens WHERE session_hash = ?", h); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, "DELETE FROM oidc_authorizations WHERE session_hash = ?", h)
+		return err
+	})
 }
 
 // LinkMember links a user to a member row (0 unlinks).
@@ -221,6 +254,18 @@ func (s *Store) principal(ctx context.Context, userID int64, method string) (*Pr
 		}
 	}
 	return p, nil
+}
+
+// PrincipalFor returns the principal a session of userID started with
+// method would carry (roles filtered as for LookupSession), or (nil, nil)
+// when the user does not exist or is disabled. The OpenID Connect provider
+// uses it to derive the roles claim of tokens issued from a session.
+func (s *Store) PrincipalFor(ctx context.Context, userID int64, method string) (*Principal, error) {
+	p, err := s.principal(ctx, userID, method)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return p, err
 }
 
 // CreateSession starts a session and returns the cookie token.

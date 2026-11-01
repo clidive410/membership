@@ -1,6 +1,8 @@
 # Plan: the membership portal as the identity provider for WordPress (OpenID Connect)
 
-Status: proposed 2026-11-01. Replaces the Caddy `forward_auth` header mechanism.
+Status: provider implemented 2026-11-01 (section 1 and the portal parts of section 3, membership PR
+`feat/oidc-provider`); WordPress client, infra wiring and Caddy cleanup still to do. Replaces the Caddy
+`forward_auth` header mechanism. See "As implemented" at the end for what changed from the proposal.
 
 ## Goal
 Members and committee sign in once at the portal (`members.clidive.org`) and are recognised on the
@@ -96,3 +98,31 @@ numbers, dates of birth or emergency contacts.
 
 ## Open questions
 None outstanding.
+
+## As implemented (portal, 2026-11-01)
+Documented for users in the README section "Using the portal as an identity provider". Differences from,
+or details beyond, the design above:
+- Endpoints also include `/oauth/revoke` (RFC 7009) and `/oauth/continue` (the portal's own consent step
+  between authorize and the client). `end_session` is implemented. Discovery advertises only what is
+  supported (code, query, S256, `client_secret_basic`/`client_secret_post`, RS256).
+- Client secrets are hashed with **argon2id** (as passwords), not bcrypt. The CLI has `disable` (keeps the
+  row, deletes the client's tokens, codes and consents) instead of `delete`. Clients also have
+  `post_logout_redirect_uris` (exact match; default: the origin of each redirect URI, `https://host/`),
+  settable with `-post-logout-uri` or `OIDC_WORDPRESS_POST_LOGOUT_URI`.
+- Consent for clients that are not first party is remembered in a fifth table, `oidc_consents`.
+- `OIDC_ISSUER` is optional: the issuer is always `BASE_URL`; a different `OIDC_ISSUER` is logged and
+  ignored rather than failing the start.
+- Refresh tokens are issued only when the client asks for `offline_access`, so the WordPress plugin's scope
+  must be `openid email profile clidive offline_access`. Each rotation issues a new token valid 30 days;
+  reusing a rotated token, or reusing a code, revokes the whole grant.
+- Tokens are bound to the portal session and revoked on portal logout, `end_session`, `/oauth/revoke`,
+  access "none"/disable, and also on a password change or reset.
+- `roles` reflects the session: committee roles and the new `editor` role are carried only by password
+  sessions (as the portal already did for the admin UI), so a website editor signs in with a password;
+  an email-link session yields `["member"]`. Editors can be invited by email (`user invite -role editor`)
+  and use password reset.
+- `end_session` with an `id_token_hint` for the signed-in user signs the portal out without asking;
+  without a hint a signed-in user gets a confirmation page (a bare cross-site link never signs anyone out).
+- `prompt=login` and an exceeded `max_age` sign the portal session out and ask for a new sign-in;
+  `prompt=none` gets `login_required`/`consent_required`.
+- Users linked to an archived member are refused (`access_denied`) even with a committee role.

@@ -8,7 +8,8 @@ Infrastructure lives in [`clidive410/infra`](https://github.com/clidive410/infra
 - Committee admin UI: member list with search and type/status filters,
   create/edit/archive/restore, payment history, bulk payment management, CSV
   export and mailing-list email lists.
-- Roles: `admin` (webmaster/committee), `membership_manager`, and `member`.
+- Roles: `admin` (webmaster/committee), `membership_manager`, `editor`
+  (website editor) and `member`.
 - Members sign in with a single-use link emailed to their primary address
   and see their own record at `/me` (read-only). The committee signs in with
   a password (argon2id), set from an emailed invitation or reset link, so
@@ -16,6 +17,9 @@ Infrastructure lives in [`clidive410/infra`](https://github.com/clidive410/infra
   (`/admin/users`) or with `membership user`. Server-side sessions, CSRF
   protection and an audit log of every member, payment and access change
   and of sign-ins.
+- OpenID Connect provider (authorization code + PKCE): the WordPress site
+  and later other club tools sign members in through the portal (see
+  [Using the portal as an identity provider](#using-the-portal-as-an-identity-provider)).
 - `GET /auth/verify` lets Caddy `forward_auth` tell the WordPress site
   whether the visitor is a signed-in club member, and whether their
   membership has expired.
@@ -25,8 +29,10 @@ Infrastructure lives in [`clidive410/infra`](https://github.com/clidive410/infra
 `net/http` with [`gorilla/mux`](https://github.com/gorilla/mux) for routing
 (method matching, an `/admin` subrouter whose middleware enforces sign-in and
 each route's permission), `html/template`, `database/sql` with
-`go-sql-driver/mysql`, and `golang.org/x/crypto` (argon2) plus
-`golang.org/x/term` (password prompt). The UI uses the
+`go-sql-driver/mysql`, `golang.org/x/crypto` (argon2) plus
+`golang.org/x/term` (password prompt), and
+[`zitadel/oidc`](https://github.com/zitadel/oidc) (`op` package) for the
+OpenID Connect provider. The UI uses the
 [Tabler](https://tabler.io) CSS kit, vendored and embedded in the binary
 (see `internal/web/static/vendor/README.md`), themed to the club's colours
 (black, logo yellow `#fff200`, Open Sans Condensed headings) in
@@ -35,11 +41,12 @@ each route's permission), `html/template`, `database/sql` with
 ## Layout
 
 ```
-cmd/membership/         CLI entrypoint: serve, migrate, migrate-legacy, user, healthcheck
+cmd/membership/         CLI entrypoint: serve, migrate, migrate-legacy, user, oidc, healthcheck
 internal/config/        environment configuration (NAME or NAME_FILE)
 internal/db/            connection setup and embedded SQL migrations (migrations/*.sql)
 internal/members/       domain model, field groups, diffs, MariaDB repository, audit log
 internal/auth/          roles and permissions, argon2id, sessions, CSRF, login tokens
+internal/idp/           OpenID Connect provider: storage for zitadel/oidc, signing keys, clients, claims
 internal/legacy/        legacy field mapping and idempotent importer
 internal/export/        CSV export and email-list formatting
 internal/mail/          SMTP sending (STARTTLS) of the sign-in emails
@@ -111,7 +118,7 @@ contents are trimmed of surrounding whitespace. If both are set, `NAME` wins.
 | Variable         | Default                  | Description |
 |------------------|--------------------------|-------------|
 | `DB_DSN`         | (required)               | [go-sql-driver DSN](https://github.com/go-sql-driver/mysql#dsn-data-source-name) for the app database, e.g. `membership:pw@tcp(clidive_db:3306)/membership`. `parseTime`, UTC and `utf8mb4` are forced. |
-| `SESSION_SECRET` | (required)               | At least 32 random characters. Keys the CSRF tokens. |
+| `SESSION_SECRET` | (required)               | At least 32 random characters. Keys the CSRF tokens, and (through HKDF) the encryption of the OIDC signing keys and access tokens: changing it invalidates them (run `membership oidc rotate-keys` afterwards). |
 | `BASE_URL`       | `http://localhost:8080`  | Public URL, e.g. `https://members.clidive.org`. A path such as `https://clidive.org/membership` mounts the app under that prefix. |
 | `COOKIE_SECURE`  | `true` if BASE_URL is https | Mark cookies `Secure`. |
 | `COOKIE_DOMAIN`  | (host-only)              | Session cookie domain, e.g. `clidive.org`, so the cookie also reaches the WordPress site for `/auth/verify`. |
@@ -128,6 +135,11 @@ contents are trimmed of surrounding whitespace. If both are set, `NAME` wins.
 | `SMTP_PORT`      | `587`                    | `587` uses STARTTLS, `465` implicit TLS. TLS is required (except to a loopback server); the app never falls back to clear text. |
 | `SMTP_USERNAME`, `SMTP_PASSWORD` | (none)   | SMTP AUTH PLAIN credentials (set both or neither). Usually given as `SMTP_USERNAME_FILE`/`SMTP_PASSWORD_FILE`. |
 | `LEGACY_DB_DSN`  |                          | Default for `migrate-legacy -legacy-dsn`. |
+| `OIDC_ISSUER`    | (= `BASE_URL`)           | Optional. The OIDC issuer is always `BASE_URL`; a different value is logged and ignored. |
+| `OIDC_WORDPRESS_CLIENT_ID` | (none)         | When set, `serve` creates or updates this OIDC client after migrations (`membership oidc client ensure`); failures are logged, never fatal. |
+| `OIDC_WORDPRESS_CLIENT_SECRET` | (none)     | Its secret (at least 32 characters), usually `OIDC_WORDPRESS_CLIENT_SECRET_FILE` (Swarm secret). |
+| `OIDC_WORDPRESS_REDIRECT_URI` | (none)      | Its redirect URI, e.g. `https://www.clidive.org/wp-admin/admin-ajax.php?action=openid-connect-authorize`. |
+| `OIDC_WORDPRESS_POST_LOGOUT_URI` | (origin of the redirect URI + `/`) | Optional post-logout redirect URI. |
 | `TRUSTED_PROXIES`| (none)                   | Comma-separated CIDRs (or addresses) of reverse proxies, e.g. the Swarm overlay network `10.0.0.0/8`. Only requests whose TCP peer is in this list have `X-Forwarded-For` read, from the right, to find the client address used for login rate limiting. Without it the TCP peer is the client. |
 
 Logs never include query strings or member data: only method, path, status,
@@ -145,13 +157,14 @@ admins need not have one.
 | `admin`              | Everything: create, edit all fields, archive/restore, payments, CSV export, email lists, history, and portal access (logins and roles, `/admin/users`). |
 | `membership_manager` | View members; edit membership fields (Clidive type/expiry/join date, BSAC details, query/notes); record and delete payments; bulk payments; view history. Personal and club fields are shown read-only. |
 | `member`             | Sign in with an emailed link and view their own record at `/me` (read-only). No access to `/admin` (403). Granted automatically on the first link request. Self-service editing (own contact, address and emergency details only) is planned. |
+| `editor`             | Website editor: no portal permission beyond their own record. It exists for the `roles` claim, which the WordPress site maps to its editor role. Like the committee roles it is only carried by **password** sessions (an email-link session carries `member` only), so editors sign in with a password. Granted with the "Website editor" checkbox in Portal access, or `membership user grant -role editor`. |
 
 Every route declares its permission (`internal/web/server.go`). Field-level
 rules use field groups (`internal/members/fields.go`): the server applies only
 the groups the user may edit, whatever the form contains.
 
 ```sh
-membership user invite -email someone@example.org -role admin|membership_manager [-member-id 123]  # emails a set-password link
+membership user invite -email someone@example.org -role admin|membership_manager|editor [-member-id 123]  # emails a set-password link
 membership user set-password -email someone@example.org [-role admin]  # create/reset; reads stdin if not a terminal
 membership user grant  -email someone@example.org -role membership_manager
 membership user revoke -email someone@example.org -role admin
@@ -172,11 +185,13 @@ password is set and the last sign-in. Each member page also has a
 **Portal access** card for the login linked to the member, or else the
 login with the member's primary email (read-only for membership managers).
 
-Both offer one role select and two buttons:
+Both offer one role select, a **Website editor** checkbox (the `editor`
+role, independent of the level) and two buttons:
 
 - **Save** sets the access level:
   - `none` revokes every role, **disables** the login, ends all its
-    sessions and spends its outstanding links. The row is kept (audit
+    sessions, spends its outstanding links and revokes its OpenID Connect
+    tokens (relying parties lose access at once). The row is kept (audit
     history); choosing a role again re-enables it.
   - `member`, `membership_manager`, `admin` create the login if there is
     none (without a password), enable it, set that role and remove the
@@ -331,6 +346,103 @@ and a reset link cannot start a member session. The reset flow never
 grants roles and never re-enables a disabled login: it only changes the
 password of an existing user.
 
+## Using the portal as an identity provider
+
+The portal is an OpenID Connect provider (`internal/idp`, on
+[`zitadel/oidc`](https://github.com/zitadel/oidc)'s `op` package with
+storage in MariaDB). The issuer is `BASE_URL`
+(`https://members.clidive.org`). It is inert until a client is registered:
+the endpoints answer, but no authorization can succeed and no signing key is
+generated before the first token.
+
+| Endpoint | |
+|----------|-|
+| `/.well-known/openid-configuration` | Discovery. |
+| `/oauth/authorize` | Authorization endpoint (GET or POST). |
+| `/oauth/token` | Token endpoint: `authorization_code` and `refresh_token` grants; client authentication `client_secret_basic` or `client_secret_post`. Rate limited per client and address. |
+| `/oauth/userinfo` | Userinfo (Bearer access token). |
+| `/oauth/jwks` | Signing keys (RS256): the active key and keys retired less than 24 h ago. |
+| `/oauth/revoke` | Token revocation (RFC 7009). Revoking a refresh token revokes its whole grant. |
+| `/oauth/end_session` | RP-initiated logout (`id_token_hint`, `post_logout_redirect_uri`, `state`). |
+
+**Flow.** Authorization code with PKCE only: `response_type=code`,
+`code_challenge_method=S256`, `state` and `nonce` are required, and the
+response mode is `query`. Implicit, hybrid, `form_post`, client credentials,
+JWT bearer, token exchange, device flow, introspection and dynamic
+registration are not offered. Redirect URIs match exactly (query string
+included).
+
+At `/oauth/authorize` the portal session is reused. Without one the browser
+goes to the normal sign-in page (email link or password) with
+`next=/oauth/authorize?...` and comes back afterwards. `prompt=none` answers
+`login_required`/`consent_required` instead; `prompt=login`, or a session
+older than `max_age`, signs the portal session out and asks for a new
+sign-in. The request is bound to the browser's portal session. Disabled
+users, users without a role and users linked to an archived member get
+`access_denied`; members whose membership has expired can sign in (see
+`membership_status`). First-party clients skip consent; other clients get a
+consent page once per user and client (`oidc_consents`).
+
+**Scopes and claims** (in the ID token and at userinfo):
+
+| Scope | Claims |
+|-------|--------|
+| `openid` | `sub`: `user:<users.id>`, stable. |
+| `email` | `email` (the login email), `email_verified: true` (signing in proves control of the mailbox). |
+| `profile` | `name`, `given_name`, `family_name` from the linked member record (`name` is the email when there is none). |
+| `clidive` | `member_id` (or `null`), `membership_status` (`active`, `expired` or `none` without a current member record), `membership_type` (or `null`), `membership_expiry` (`YYYY-MM-DD` or `null`), `roles` (portal roles of the session: `admin`, `membership_manager` and `editor` only after a password sign-in), `bsac_member_id` (only when present). |
+| `offline_access` | A refresh token. |
+
+Addresses, phone numbers, dates of birth and emergency contacts are never
+released.
+
+**Tokens.** Codes are valid 60 s and single use (a second use revokes what
+the first produced). Access tokens are opaque and valid 10 minutes; ID
+tokens 10 minutes; refresh tokens 30 days from their issue, rotated on every
+use (reusing a rotated one revokes the grant). Codes, access token ids and
+refresh tokens are stored as SHA-256 hashes, client secrets as argon2id.
+Tokens are revoked on portal logout (those issued during that session), on
+`end_session`, on `/oauth/revoke`, when a login is disabled or set to no
+access, and when its password is changed. Signing keys are RSA 2048,
+generated on first use and stored encrypted (AES-256-GCM, key derived from
+`SESSION_SECRET` with HKDF). Client authorizations (`oidc.authorize`) and
+token issuance (`oidc.token`) are audit-logged by user id with the client id.
+
+**Registering a client.**
+
+```sh
+membership oidc client create -id ID -name "Name" -redirect-uri URI [-redirect-uri URI ...] \
+    [-post-logout-uri URI ...] [-scopes "openid email profile offline_access clidive"] [-first-party] [-secret-file PATH]
+                                            # prints a generated secret once unless -secret-file is given
+membership oidc client list
+membership oidc client rotate-secret -id ID [-secret-file PATH]
+membership oidc client disable -id ID      # also deletes its tokens, codes and consents
+membership oidc client ensure              # idempotent create-or-update, from flags or OIDC_WORDPRESS_* (first party)
+membership oidc rotate-keys                # new signing key; the old one stays in the JWKS for 24 h
+```
+
+Redirect and post-logout URIs must be https (http only on localhost);
+post-logout URIs default to the origin of each redirect URI (`https://host/`).
+`ensure` never re-enables a disabled client and re-hashes the secret only
+when it changed. `serve` runs it at start when `OIDC_WORDPRESS_CLIENT_ID` is
+set.
+
+**WordPress** (OpenID Connect Generic Client, see `docs/sso-plan.md`):
+
+| Plugin setting | Value |
+|----------------|-------|
+| Client ID | `wordpress` (`OIDC_WORDPRESS_CLIENT_ID`) |
+| Client secret | the Swarm secret `OIDC_WORDPRESS_CLIENT_SECRET` |
+| Scope | `openid email profile clidive offline_access` |
+| Login endpoint | `https://members.clidive.org/oauth/authorize` |
+| Userinfo endpoint | `https://members.clidive.org/oauth/userinfo` |
+| Token endpoint | `https://members.clidive.org/oauth/token` |
+| End session endpoint | `https://members.clidive.org/oauth/end_session` |
+| JWKS / issuer | `https://members.clidive.org/oauth/jwks`, `https://members.clidive.org` |
+| PKCE | enabled (S256), required by the portal |
+| Identity key / nickname key | `email` / `name` |
+| Redirect URI (registered here) | `https://<site host>/wp-admin/admin-ajax.php?action=openid-connect-authorize` |
+
 ## `/auth/verify` (Caddy forward_auth)
 
 `GET /auth/verify` (or `HEAD`) always returns `200` with an empty body. It
@@ -477,7 +589,8 @@ without a default.
 | `SESSION_SECRET_FILE` | Swarm secret, at least 32 random characters. Or `SESSION_SECRET`. |
 | `BASE_URL` | `https://members.clidive.org` |
 | `COOKIE_SECURE` | Defaults to `true` for an https `BASE_URL`. |
-| `COOKIE_DOMAIN` | `clidive.org`, so `/auth/verify` sees the session on the WordPress site. |
+| `COOKIE_DOMAIN` | `clidive.org`, so `/auth/verify` sees the session on the WordPress site. Once the site uses OIDC, leave it unset (host-only cookie). |
+| `OIDC_WORDPRESS_CLIENT_ID`, `OIDC_WORDPRESS_CLIENT_SECRET_FILE`, `OIDC_WORDPRESS_REDIRECT_URI` | Register the WordPress OIDC client at start-up (see [Using the portal as an identity provider](#using-the-portal-as-an-identity-provider)). |
 | `SMTP_HOST`, `SMTP_PORT` | SMTP submission server and port (`587`, STARTTLS). |
 | `SMTP_USERNAME_FILE`, `SMTP_PASSWORD_FILE` | Swarm secrets with the SMTP credentials. Or `SMTP_USERNAME`/`SMTP_PASSWORD`. |
 | `MAIL_FROM` | e.g. `Clidive Membership <membership@clidive.org>`; the SMTP account must be allowed to send as it. |

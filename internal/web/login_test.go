@@ -239,6 +239,7 @@ func TestLoginNext(t *testing.T) {
 		{"https://user@www.clidive.org/", "https://www.clidive.org/"},
 		{"javascript:alert(1)", "https://www.clidive.org/"},
 		{"me", "https://www.clidive.org/"},
+		{"/oauth/authorize?client_id=wordpress&state=x%20y&scope=openid+email", "/oauth/authorize?client_id=wordpress&state=x%20y&scope=openid+email"},
 	}
 	for _, c := range cases {
 		var extra url.Values

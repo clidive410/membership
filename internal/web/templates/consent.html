@@ -1,0 +1,23 @@
+{{define "content"}}
+<div class="container container-tight py-4">
+  <div class="text-center mb-4">
+    <span class="login-brand">{{template "wordmark" .}}</span>
+  </div>
+  <div class="card card-md">
+    <div class="card-body">
+      <h1 class="h2 text-center mb-3">Allow {{.Data.ClientName}}?</h1>
+      <p>{{.Data.ClientName}} wants to sign you in with your Clidive portal account{{with .P}} (<strong>{{.Email}}</strong>){{end}} and will receive:</p>
+      <ul>
+        {{range .Data.Scopes}}<li>{{.}}</li>{{end}}
+      </ul>
+      <p class="text-secondary small">It never receives your address, phone numbers, date of birth or emergency contacts. Your answer is remembered for this site.</p>
+      <form method="post" action="{{url "/oauth/continue"}}" class="d-flex gap-2">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <input type="hidden" name="id" value="{{.Data.ID}}">
+        <button type="submit" name="decision" value="allow" class="btn btn-primary flex-fill">{{icon "check"}} Allow</button>
+        <button type="submit" name="decision" value="deny" class="btn btn-outline-secondary flex-fill">{{icon "x"}} Cancel</button>
+      </form>
+    </div>
+  </div>
+</div>
+{{end}}

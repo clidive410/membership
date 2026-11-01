@@ -17,6 +17,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/clidive410/membership/internal/auth"
+	"github.com/clidive410/membership/internal/idp"
 	"github.com/clidive410/membership/internal/mail"
 	"github.com/clidive410/membership/internal/members"
 )
@@ -51,6 +52,9 @@ type AuthStore interface {
 	CreateSession(ctx context.Context, userID int64, method string, ttl time.Duration) (string, error)
 	LookupSession(ctx context.Context, token string) (*auth.Principal, error)
 	DeleteSession(ctx context.Context, token string) error
+	// Logout ends a session and revokes the OpenID Connect tokens issued
+	// while it was signed in.
+	Logout(ctx context.Context, token string) error
 	RequestLoginLink(ctx context.Context, email string, ttl time.Duration) (*auth.LoginLink, error)
 	LoginWithToken(ctx context.Context, token string) (*auth.Principal, error)
 	VerifySession(ctx context.Context, token string) (*auth.SessionStatus, error)
@@ -93,7 +97,10 @@ type Options struct {
 	LoginReturnURL *url.URL
 	// Mailer sends sign-in links; nil means mail.Unconfigured.
 	Mailer mail.Sender
-	Now    func() time.Time
+	// OIDC, when set, serves the OpenID Connect provider endpoints
+	// (/.well-known/openid-configuration and /oauth/...).
+	OIDC *idp.Provider
+	Now  func() time.Time
 }
 
 // Server holds the HTTP handlers.
@@ -105,7 +112,10 @@ type Server struct {
 	linkByIP, linkByEmail *limiter
 	// Password reset requests, with the same limits.
 	resetByIP, resetByEmail *limiter
-	pages                   map[string]*pageTemplate
+	// OIDC token and revocation requests per client and address, and
+	// failed ones per address.
+	tokenByClient, tokenFailures *limiter
+	pages                        map[string]*pageTemplate
 	// Background sign-in link work (lookup, token, email), so that the
 	// response time does not reveal whether an address belongs to a member.
 	bg      sync.WaitGroup
@@ -134,14 +144,16 @@ func New(opt Options) *Server {
 		opt.PublicURL = &url.URL{Scheme: "http", Host: "localhost:8080", Path: opt.BasePath}
 	}
 	s := &Server{
-		opt:          opt,
-		csrf:         auth.CSRF{Secret: opt.SessionSecret},
-		limiter:      newLimiter(10, 15*time.Minute),
-		linkByIP:     newLimiter(linkRequestsPerIP, 15*time.Minute),
-		linkByEmail:  newLimiter(linkRequestsPerEmail, 15*time.Minute),
-		resetByIP:    newLimiter(linkRequestsPerIP, 15*time.Minute),
-		resetByEmail: newLimiter(linkRequestsPerEmail, 15*time.Minute),
-		sendSem:      make(chan struct{}, maxPendingLinks),
+		opt:           opt,
+		csrf:          auth.CSRF{Secret: opt.SessionSecret},
+		limiter:       newLimiter(10, 15*time.Minute),
+		linkByIP:      newLimiter(linkRequestsPerIP, 15*time.Minute),
+		linkByEmail:   newLimiter(linkRequestsPerEmail, 15*time.Minute),
+		resetByIP:     newLimiter(linkRequestsPerIP, 15*time.Minute),
+		resetByEmail:  newLimiter(linkRequestsPerEmail, 15*time.Minute),
+		tokenByClient: newLimiter(tokenRequestsPerClientIP, time.Minute),
+		tokenFailures: newLimiter(tokenFailuresPerIP, 15*time.Minute),
+		sendSem:       make(chan struct{}, maxPendingLinks),
 	}
 	s.pages = mustParseTemplates(opt.BasePath)
 	return s
@@ -211,6 +223,10 @@ func (s *Server) Handler() http.Handler {
 	route("POST", "/users/{uid}/access", auth.PermManageUsers, s.handleUserAccess)
 	admin.Use(s.requireSignIn, s.requirePermission(perms))
 
+	if s.oidcEnabled() {
+		s.oidcRoutes(r)
+	}
+
 	// Extension point: member self-service editing (POST /me) will be
 	// guarded by auth.PermEditOwnPersonal and apply only
 	// Principal.SelfEditableGroups().
@@ -226,9 +242,21 @@ func (s *Server) Handler() http.Handler {
 		s.stripBase,
 		securityHeaders,
 		s.loadSession,
-		http.NewCrossOriginProtection().Handler,
+		s.crossOriginProtection().Handler,
 		s.checkCSRF,
 	)
+}
+
+// crossOriginProtection rejects cross-origin unsafe requests from
+// browsers, except on the OIDC endpoints that relying parties use.
+func (s *Server) crossOriginProtection() *http.CrossOriginProtection {
+	cop := http.NewCrossOriginProtection()
+	if s.oidcEnabled() {
+		for _, p := range oidcCSRFExempt {
+			cop.AddInsecureBypassPattern(p)
+		}
+	}
+	return cop
 }
 
 // chain wraps h in middleware, the first being the outermost.

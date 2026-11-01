@@ -15,6 +15,7 @@ type accessView struct {
 	User      *auth.User  // nil: no login yet
 	Email     string      // the login's email, or the member's primary email
 	Current   auth.Access // AccessNone without a login
+	Editor    bool        // the login has the website editor role
 	Self      bool        // the viewer's own login: no demotion (lock-out)
 	CanManage bool        // the viewer may change it (admins)
 	Action    string      // form action (in-app URL)
@@ -26,7 +27,7 @@ func (v accessView) Levels() []auth.Access { return auth.AccessLevels }
 func newAccessView(p *auth.Principal, u *auth.User, email, action string) accessView {
 	v := accessView{User: u, Email: email, Current: auth.AccessNone, CanManage: p.Can(auth.PermManageUsers), Action: action}
 	if u != nil {
-		v.Email, v.Current, v.Self = u.Email, u.Access(), u.ID == p.UserID
+		v.Email, v.Current, v.Self, v.Editor = u.Email, u.Access(), u.ID == p.UserID, u.Editor()
 	}
 	return v
 }
@@ -126,8 +127,9 @@ func (s *Server) handleMemberAccess(w http.ResponseWriter, r *http.Request) {
 	s.changeAccess(w, r, email, memberID, u, r.PostForm.Get("action"), back, "#access")
 }
 
-// changeAccess applies the posted access level ("access") and, for action
-// "invite", emails a set-password link. It redirects to back (plus a
+// changeAccess applies the posted access level ("access") and website
+// editor checkbox ("editor") and, for action "invite", emails a
+// set-password link. It redirects to back (plus a
 // flash and the fragment) when done.
 func (s *Server) changeAccess(w http.ResponseWriter, r *http.Request, email string, memberID int64, target *auth.User, action, back, fragment string) {
 	p := principalFrom(r.Context())
@@ -146,12 +148,13 @@ func (s *Server) changeAccess(w http.ResponseWriter, r *http.Request, email stri
 		done("choose-role")
 		return
 	}
-	current := auth.AccessNone
+	editor := r.PostForm.Get("editor") == "1" && access != auth.AccessNone
+	current, currentEditor := auth.AccessNone, false
 	if target != nil {
-		current = target.Access()
+		current, currentEditor = target.Access(), target.Editor()
 	}
-	if access != current || target == nil {
-		_, err := s.opt.Auth.SetAccess(r.Context(), p.Actor(), auth.AccessRequest{Email: email, MemberID: memberID, Access: access})
+	if access != current || editor != currentEditor || target == nil {
+		_, err := s.opt.Auth.SetAccess(r.Context(), p.Actor(), auth.AccessRequest{Email: email, MemberID: memberID, Access: access, Editor: &editor})
 		switch {
 		case errors.Is(err, auth.ErrSelfLockout):
 			done("self-lockout")

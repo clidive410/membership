@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -138,5 +139,39 @@ func TestMailAndMemberLogin(t *testing.T) {
 		if _, err := Load(env(m)); err == nil {
 			t.Errorf("%s=%q: expected an error", k, v)
 		}
+	}
+}
+
+func TestLoadOIDCClient(t *testing.T) {
+	if c, err := LoadOIDCClient(env(nil)); c != nil || err != nil {
+		t.Fatalf("unset: %+v %v", c, err)
+	}
+	if _, err := LoadOIDCClient(env(map[string]string{"OIDC_WORDPRESS_CLIENT_ID": "wordpress"})); err == nil {
+		t.Error("missing secret and redirect URI must be an error")
+	}
+	dir := t.TempDir()
+	path := dir + "/secret"
+	if err := os.WriteFile(path, []byte("from-a-file-0123456789abcdefghijklmnop\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := LoadOIDCClient(env(map[string]string{"OIDC_WORDPRESS_CLIENT_ID": "wordpress", "OIDC_WORDPRESS_CLIENT_SECRET_FILE": path,
+		"OIDC_WORDPRESS_REDIRECT_URI": "https://www.example.org/wp-admin/admin-ajax.php?action=openid-connect-authorize"}))
+	if err != nil || c.Secret != "from-a-file-0123456789abcdefghijklmnop" || c.ID != "wordpress" {
+		t.Fatalf("file secret: %+v %v", c != nil, err)
+	}
+}
+
+func TestOIDCIssuer(t *testing.T) {
+	cfg, err := Load(func(k string) string {
+		return map[string]string{"DB_DSN": "u:p@tcp(db)/m", "SESSION_SECRET": strings.Repeat("s", 32), "BASE_URL": "https://members.example.org/"}[k]
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if iss, err := cfg.OIDCIssuer(func(string) string { return "" }); iss != "https://members.example.org" || err != nil {
+		t.Errorf("issuer %q %v", iss, err)
+	}
+	if iss, err := cfg.OIDCIssuer(func(k string) string { return map[string]string{"OIDC_ISSUER": "https://other.example.org"}[k] }); iss != "https://members.example.org" || err == nil {
+		t.Errorf("mismatch: %q %v", iss, err)
 	}
 }

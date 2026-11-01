@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"net/url"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -47,7 +48,7 @@ func principalFrom(ctx context.Context) *auth.Principal {
 // /auth/verify is skipped: it does its own single-query lookup.
 func (s *Server) loadSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == verifyPath {
+		if r.URL.Path == verifyPath || (s.oidcEnabled() && slices.Contains(oidcNoSession, r.URL.Path)) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -120,6 +121,10 @@ func (s *Server) checkCSRF(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		if s.csrfExempt(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
 		if err := r.ParseForm(); err != nil {
 			http.Error(w, "bad form", http.StatusBadRequest)
@@ -173,12 +178,14 @@ func (s *Server) requirePermission(perms map[*mux.Route]auth.Permission) mux.Mid
 	}
 }
 
+// contentSecurityPolicy is sent with every response. img-src data: is for
+// the small SVGs Tabler's CSS embeds (select arrows, checkbox ticks).
+const contentSecurityPolicy = "default-src 'none'; style-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		// img-src data: is for the small SVGs Tabler's CSS embeds (select
-		// arrows, checkbox ticks).
-		h.Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+		h.Set("Content-Security-Policy", contentSecurityPolicy)
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "same-origin")
 		h.Set("X-Frame-Options", "DENY")
