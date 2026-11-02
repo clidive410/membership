@@ -478,6 +478,7 @@ func TestBasePathAndHeaders(t *testing.T) {
 		t.Errorf("prefixed redirect: %d %q", w.Code, w.Header().Get("Location"))
 	}
 	w = e.do(t, "GET", "/membership/login", "", nil)
+	login := w.Body.String()
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `href="/membership/static/style.css?v=`) {
 		t.Errorf("prefixed login page: %d", w.Code)
 	}
@@ -489,6 +490,14 @@ func TestBasePathAndHeaders(t *testing.T) {
 	}
 	if w := e.do(t, "GET", "/membership/static/style.css", "", nil); w.Code != 200 || !strings.Contains(w.Header().Get("Content-Type"), "text/css") {
 		t.Errorf("static css: %d %q", w.Code, w.Header().Get("Content-Type"))
+	}
+	for _, icon := range []string{"favicon-32.png", "favicon-192.png", "favicon-180.png"} {
+		if !strings.Contains(login, `href="/membership/static/`+icon+`?v=`) {
+			t.Errorf("login page does not link %s", icon)
+		}
+		if w := e.do(t, "GET", "/membership/static/"+icon, "", nil); w.Code != 200 || w.Header().Get("Content-Type") != "image/png" {
+			t.Errorf("static %s: %d %q", icon, w.Code, w.Header().Get("Content-Type"))
+		}
 	}
 	if w := e.do(t, "GET", "/admin/members", "", nil); w.Code != http.StatusNotFound {
 		t.Errorf("unprefixed path should 404, got %d", w.Code)

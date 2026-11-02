@@ -277,7 +277,7 @@ func chain(h http.Handler, mw ...func(http.Handler) http.Handler) http.Handler {
 	return h
 }
 
-// staticHandler serves the embedded stylesheets. Vendored files are
+// staticHandler serves the embedded stylesheets and icons. Vendored files are
 // immutable for a given version, so browsers may cache them for a day.
 func staticHandler() http.Handler {
 	fs := http.FileServerFS(staticFS)
