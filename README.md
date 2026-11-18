@@ -161,7 +161,7 @@ admins need not have one.
 | Role                 | Can |
 |----------------------|-----|
 | `admin`              | Everything: create, edit all fields, archive/restore, payments, CSV export, email lists, history, and portal access (logins and roles, `/admin/users`). |
-| `membership_manager` | View members; create members (all fields on the new-member form); edit membership fields (Clidive type/expiry/join date, BSAC details, query/notes); record and delete payments; bulk payments; view history. On existing records, personal and club fields are shown read-only. |
+| `membership_manager` | View members; create members (all fields on the new-member form); edit membership fields (Clidive type/expiry/join date, BSAC details, query/notes) and club fields (qualifications, previous club, mailing lists and club roles); record and delete payments; bulk payments; view history. On existing records, personal fields are shown read-only. |
 | `member`             | Sign in with an emailed link and view their own record at `/me` (read-only), and members documents. No access to `/admin` (403). Granted automatically on the first link request. Self-service editing (own contact, address and emergency details only) is planned. |
 | `editor`             | Website editor: no portal permission beyond their own record and members documents. It exists for the `roles` claim, which the WordPress site maps to its editor role. Granted with the "Website editor" checkbox in Portal access, or `membership user grant -role editor`. |
 
