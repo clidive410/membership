@@ -20,7 +20,7 @@ type Role string
 // Roles (seeded in the roles table).
 const (
 	RoleAdmin             Role = "admin"              // committee
-	RoleMembershipManager Role = "membership_manager" // type/expiry/BSAC/payments
+	RoleMembershipManager Role = "membership_manager" // type/expiry/BSAC/payments, mailing lists, qualifications
 	RoleMember            Role = "member"             // signed-in club member (own record, read-only)
 	// RoleEditor is a website editor. It grants nothing in the portal
 	// beyond what any signed-in user has (their own record, members-level
@@ -60,7 +60,7 @@ var rolePermissions = map[Role][]Permission{
 	RoleAdmin: {PermViewMembers, PermCreateMembers, PermArchiveMembers, PermEditPersonal, PermEditClub,
 		PermEditMembership, PermRecordPayments, PermExport, PermEmailLists, PermViewAudit, PermManageUsers, PermEditOwnPersonal,
 		PermViewDocuments, PermManageDocuments},
-	RoleMembershipManager: {PermViewMembers, PermCreateMembers, PermEditMembership, PermRecordPayments, PermViewAudit,
+	RoleMembershipManager: {PermViewMembers, PermCreateMembers, PermEditClub, PermEditMembership, PermRecordPayments, PermViewAudit,
 		PermViewDocuments, PermManageDocuments},
 	RoleMember: {PermEditOwnPersonal, PermViewDocuments},
 	RoleEditor: {PermViewDocuments},

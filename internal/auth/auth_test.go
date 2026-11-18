@@ -75,7 +75,7 @@ func TestRolePermissions(t *testing.T) {
 	if !admin.Can(PermExport) || !admin.Can(PermEditPersonal) {
 		t.Error("admin should have full access")
 	}
-	if !mgr.Can(PermEditMembership) || !mgr.Can(PermRecordPayments) || !mgr.Can(PermViewMembers) || !mgr.Can(PermCreateMembers) {
+	if !mgr.Can(PermEditMembership) || !mgr.Can(PermRecordPayments) || !mgr.Can(PermViewMembers) || !mgr.Can(PermCreateMembers) || !mgr.Can(PermEditClub) {
 		t.Error("membership manager lacks membership permissions")
 	}
 	if mgr.Can(PermEditPersonal) || mgr.Can(PermExport) || mgr.Can(PermArchiveMembers) {
@@ -87,7 +87,7 @@ func TestRolePermissions(t *testing.T) {
 	if nobody.Can(PermViewMembers) {
 		t.Error("nil principal must have no permissions")
 	}
-	if g := mgr.EditableGroups(); len(g) != 1 || g[0] != members.GroupMembership {
+	if g := mgr.EditableGroups(); len(g) != 2 || g[0] != members.GroupClub || g[1] != members.GroupMembership {
 		t.Errorf("manager groups = %v", g)
 	}
 	if g := member.SelfEditableGroups(); len(g) != 1 || g[0] != members.GroupPersonal {

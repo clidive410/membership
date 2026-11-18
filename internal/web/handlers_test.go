@@ -335,19 +335,22 @@ func fullForm(m map[string]string) url.Values {
 	return v
 }
 
-func TestManagerCanOnlyEditMembershipFields(t *testing.T) {
+func TestManagerCannotEditPersonalFields(t *testing.T) {
 	e := newEnv(t, "")
 	mgr := e.fa.session("manager@example.org")
 	w := e.do(t, "POST", "/admin/members/1", mgr, fullForm(map[string]string{
-		"FirstName": "Hacked", "LastName": "Name", "Email1": "evil@example.org", "Driver": "on",
+		"FirstName": "Hacked", "LastName": "Name", "Email1": "evil@example.org", "Driver": "on", "InstructorMailing": "on", "DiverGrades": "Dive Leader",
 		"TypeID": "6", "MembershipExpiry": "2026-12-31", "Notes": "Renewal chased",
 	}))
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("update: %d %s", w.Code, w.Body)
 	}
 	m := e.fm.members[1]
-	if m.FirstName != "Ada" || m.Email1 != "ada@example.org" || m.Driver {
-		t.Errorf("manager changed non-membership fields: %+v", m)
+	if m.FirstName != "Ada" || m.LastName != "Anchor" || m.Email1 != "ada@example.org" {
+		t.Errorf("manager changed personal fields: %+v", m)
+	}
+	if !m.Driver || !m.InstructorMailing || m.DiverGrades != "Dive Leader" {
+		t.Errorf("club fields not updated: %+v", m)
 	}
 	if m.TypeID.Int64 != 6 || members.FormatDate(m.MembershipExpiry) != "2026-12-31" || m.Notes != "Renewal chased" {
 		t.Errorf("membership fields not updated: %+v", m)
@@ -355,10 +358,10 @@ func TestManagerCanOnlyEditMembershipFields(t *testing.T) {
 	if got := e.fm.audit[len(e.fm.audit)-1]; got != "manager@example.org member.update" {
 		t.Errorf("audit = %q", got)
 	}
-	// The form renders the personal fieldset disabled for the manager.
+	// The form renders only the personal fieldset disabled for the manager.
 	body := e.do(t, "GET", "/admin/members/1", mgr, nil).Body.String()
-	if !strings.Contains(body, "<fieldset disabled>") {
-		t.Error("expected disabled fieldsets for the manager")
+	if n := strings.Count(body, "<fieldset disabled>"); n != 1 {
+		t.Errorf("disabled fieldsets for the manager = %d, want 1 (personal)", n)
 	}
 }
 
