@@ -287,7 +287,7 @@ func TestPermissions(t *testing.T) {
 		{mgr, "GET", "/admin/payments", 200},
 		{mgr, "GET", "/admin/export.csv", 403},
 		{mgr, "GET", "/admin/emails", 403},
-		{mgr, "GET", "/admin/members/new", 403},
+		{mgr, "GET", "/admin/members/new", 200},
 		{mgr, "POST", "/admin/members/1/archive", 403},
 		{member, "GET", "/admin/members", 403},
 		{member, "GET", "/admin/members/1", 403},
@@ -301,6 +301,29 @@ func TestPermissions(t *testing.T) {
 		if w := e.do(t, c.method, c.path, c.session, form); w.Code != c.want {
 			t.Errorf("%s %s as %s: got %d, want %d", c.method, c.path, c.session[:4], w.Code, c.want)
 		}
+	}
+}
+
+func TestManagerCreatesMember(t *testing.T) {
+	e := newEnv(t, "")
+	mgr := e.fa.session("manager@example.org")
+	if body := e.do(t, "GET", "/admin/members", mgr, nil).Body.String(); !strings.Contains(body, `href="/admin/members/new"`) {
+		t.Error("membership manager should see the New member link")
+	}
+	w := e.do(t, "POST", "/admin/members", mgr, fullForm(map[string]string{
+		"FirstName": "Mia", "LastName": "Newdiver", "Email1": "mia@example.org", "TypeID": "1",
+	}))
+	if w.Code != http.StatusSeeOther || !strings.HasPrefix(w.Header().Get("Location"), "/admin/members/") {
+		t.Fatalf("create as manager: %d %s", w.Code, w.Body)
+	}
+	var created *members.Member
+	for _, m := range e.fm.members {
+		if m.LastName == "Newdiver" {
+			created = m
+		}
+	}
+	if created == nil || created.FirstName != "Mia" || created.Email1 != "mia@example.org" {
+		t.Errorf("created member wrong: %+v", created)
 	}
 }
 
