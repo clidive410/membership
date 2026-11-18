@@ -60,7 +60,7 @@ var rolePermissions = map[Role][]Permission{
 	RoleAdmin: {PermViewMembers, PermCreateMembers, PermArchiveMembers, PermEditPersonal, PermEditClub,
 		PermEditMembership, PermRecordPayments, PermExport, PermEmailLists, PermViewAudit, PermManageUsers, PermEditOwnPersonal,
 		PermViewDocuments, PermManageDocuments},
-	RoleMembershipManager: {PermViewMembers, PermEditMembership, PermRecordPayments, PermViewAudit,
+	RoleMembershipManager: {PermViewMembers, PermCreateMembers, PermEditMembership, PermRecordPayments, PermViewAudit,
 		PermViewDocuments, PermManageDocuments},
 	RoleMember: {PermEditOwnPersonal, PermViewDocuments},
 	RoleEditor: {PermViewDocuments},

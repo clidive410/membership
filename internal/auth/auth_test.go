@@ -75,7 +75,7 @@ func TestRolePermissions(t *testing.T) {
 	if !admin.Can(PermExport) || !admin.Can(PermEditPersonal) {
 		t.Error("admin should have full access")
 	}
-	if !mgr.Can(PermEditMembership) || !mgr.Can(PermRecordPayments) || !mgr.Can(PermViewMembers) {
+	if !mgr.Can(PermEditMembership) || !mgr.Can(PermRecordPayments) || !mgr.Can(PermViewMembers) || !mgr.Can(PermCreateMembers) {
 		t.Error("membership manager lacks membership permissions")
 	}
 	if mgr.Can(PermEditPersonal) || mgr.Can(PermExport) || mgr.Can(PermArchiveMembers) {
